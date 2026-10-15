@@ -1,0 +1,43 @@
+From f9937b7eac4d1a720f1cdf58c2fb74ef219501cd Mon Sep 17 00:00:00 2001
+From: KumaKorin <me@korin.im>
+Date: Thu, 15 Oct 2026 21:48:33 +0800
+Subject: [PATCH 2/2] feat(admin): update admin home badge to CE and align
+ frontend package version
+
+---
+ package.json                      | 4 ++--
+ src/component/Admin/Home/Home.tsx | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/package.json b/package.json
+index da46e13..3713dc5 100644
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "cloudreve-frontend",
++  "name": "cloudreve-frontend-pro",
+   "private": true,
+-  "version": "4.0.0-next",
++  "version": "4.19.1",
+   "type": "module",
+   "scripts": {
+     "dev": "vite",
+diff --git a/src/component/Admin/Home/Home.tsx b/src/component/Admin/Home/Home.tsx
+index f9ae8cc..ffad5b1 100644
+--- a/src/component/Admin/Home/Home.tsx
++++ b/src/component/Admin/Home/Home.tsx
+@@ -313,8 +313,8 @@ const Home = () => {
+                 <Box sx={{ ml: 2 }}>
+                   <Typography variant={"h5"} fontWeight={600}>
+                     Cloudreve
+-                    {summary && summary.version.pro && (
+-                      <SquareChip sx={{ ml: 1, height: "initial" }} size={"small"} color={"primary"} label={"Pro"} />
++                    {summary && (
++                      <SquareChip sx={{ ml: 1, height: "initial" }} size={"small"} color={"primary"} label={"CE"} />
+                     )}
+                   </Typography>
+                   <Typography variant={"subtitle2"} color={"text.secondary"}>
+-- 
+2.52.0.windows.1
+

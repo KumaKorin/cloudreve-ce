@@ -1,0 +1,25 @@
+From 3b474ee126d7f28974474780c1bc8fe70a2704f4 Mon Sep 17 00:00:00 2001
+From: KumaKorin <me@korin.im>
+Date: Thu, 15 Oct 2026 22:02:50 +0800
+Subject: [PATCH 2/2] chore: ignore build artifacts
+
+---
+ .gitignore | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/.gitignore b/.gitignore
+index 3588d30..6a8fe3f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -37,4 +37,6 @@ data/
+ tmp/
+ .devcontainer/
+ cloudreve
+-.DS_Store
+\ No newline at end of file
++.DS_Store
++cloudreve*
++Cloudreve.exe
+-- 
+2.52.0.windows.1
+
