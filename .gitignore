@@ -38,3 +38,5 @@ tmp/
 .devcontainer/
 cloudreve
 .DS_Store
+cloudreve*
+Cloudreve.exe
