@@ -37,8 +37,12 @@ export function canCopyMoveTo(files: FileResponse[], dst: string, isCopy: boolea
     }
   }
   const canNotMove = files.some((file) => {
+    if (!file.capability) return false;
     const capability = new Boolset(file.capability);
-    return !capability.enabled(bsKey);
+    if (capability.enabled(bsKey)) {
+      return false;
+    }
+    return !capability.enabled(NavigatorCapability.delete_file);
   });
   return !canNotMove;
 }

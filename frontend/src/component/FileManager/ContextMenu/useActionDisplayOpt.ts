@@ -19,8 +19,11 @@ export const canManageVersion = (file: FileResponse, bs: Boolset) => {
   );
 };
 
-export const canShowInfo = (readable: boolean, cap: Boolset) => {
-  return readable && cap.enabled(NavigatorCapability.info);
+export const canShowInfo = (readableOrCap: boolean | Boolset, cap?: Boolset) => {
+  if (typeof readableOrCap === "boolean") {
+    return readableOrCap && (cap ? cap.enabled(NavigatorCapability.info) : false);
+  }
+  return readableOrCap.enabled(NavigatorCapability.info);
 };
 
 export const canUpdate = (opt: DisplayOption) => {
@@ -264,11 +267,12 @@ export const getActionOpt = (
     display.orCapability &&
     display.orCapability.enabled(NavigatorCapability.rename_file);
   display.showCopy =
-    display.hasReadable &&
+    (display.hasReadable || display.hasUpdatable) &&
     display.orCapability &&
     (display.orCapability.enabled(NavigatorCapability.copy_to_my) ||
       display.orCapability.enabled(NavigatorCapability.copy_to_share) ||
-      display.orCapability.enabled(NavigatorCapability.copy_to_trash));
+      display.orCapability.enabled(NavigatorCapability.copy_to_trash) ||
+      display.hasUpdatable);
   display.showShare =
     targets.length == 1 &&
     !!currentUser &&
@@ -279,11 +283,12 @@ export const getActionOpt = (
     (!targets[0].metadata ||
       (!targets[0].metadata[Metadata.share_redirect] && !targets[0].metadata[Metadata.restore_uri]));
   display.showMove =
-    display.hasDeletable &&
+    (display.hasDeletable || display.hasUpdatable) &&
     display.orCapability &&
     (display.orCapability.enabled(NavigatorCapability.move_to_share) ||
       display.orCapability.enabled(NavigatorCapability.move_to_trash) ||
-      display.orCapability.enabled(NavigatorCapability.move_to_my));
+      display.orCapability.enabled(NavigatorCapability.move_to_my) ||
+      display.hasUpdatable);
   display.showTags =
     display.hasUpdatable && display.orCapability && display.orCapability.enabled(NavigatorCapability.update_metadata);
   display.showChangeFolderColor =

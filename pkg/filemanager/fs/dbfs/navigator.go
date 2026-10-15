@@ -80,18 +80,18 @@ type (
 const (
 	NavigatorCapabilityCreateFile NavigatorCapability = iota
 	NavigatorCapabilityRenameFile
-	NavigatorCapability_CommunityPlacehodler1
-	NavigatorCapability_CommunityPlacehodler2
-	NavigatorCapability_CommunityPlacehodler3
-	NavigatorCapability_CommunityPlacehodler4
+	NavigatorCapabilitySetPermission
+	NavigatorCapabilityMoveToMy
+	NavigatorCapabilityMoveToShare
+	NavigatorCapabilityMoveToTrash
 	NavigatorCapabilityUploadFile
 	NavigatorCapabilityDownloadFile
 	NavigatorCapabilityUpdateMetadata
 	NavigatorCapabilityListChildren
 	NavigatorCapabilityGenerateThumb
-	NavigatorCapability_CommunityPlacehodler5
-	NavigatorCapability_CommunityPlacehodler6
-	NavigatorCapability_CommunityPlacehodler7
+	NavigatorCapabilityCopyToMy
+	NavigatorCapabilityCopyToShare
+	NavigatorCapabilityCopyToTrash
 	NavigatorCapabilityDeleteFile
 	NavigatorCapabilityLockFile
 	NavigatorCapabilitySoftDelete
@@ -99,49 +99,67 @@ const (
 	NavigatorCapabilityShare
 	NavigatorCapabilityInfo
 	NavigatorCapabilityVersionControl
-	NavigatorCapability_CommunityPlacehodler8
-	NavigatorCapability_CommunityPlacehodler9
+	NavigatorCapabilityMount
+	NavigatorCapabilityRelocate
 	NavigatorCapabilityEnterFolder
 	NavigatorCapabilityModifyProps
 
 	searchTokenSeparator = "|"
 )
 
+const (
+	NavigatorCapability_CommunityPlacehodler1 = NavigatorCapabilitySetPermission
+	NavigatorCapability_CommunityPlacehodler2 = NavigatorCapabilityMoveToMy
+	NavigatorCapability_CommunityPlacehodler3 = NavigatorCapabilityMoveToShare
+	NavigatorCapability_CommunityPlacehodler4 = NavigatorCapabilityMoveToTrash
+	NavigatorCapability_CommunityPlacehodler5 = NavigatorCapabilityCopyToMy
+	NavigatorCapability_CommunityPlacehodler6 = NavigatorCapabilityCopyToShare
+	NavigatorCapability_CommunityPlacehodler7 = NavigatorCapabilityCopyToTrash
+	NavigatorCapability_CommunityPlacehodler8 = NavigatorCapabilityMount
+	NavigatorCapability_CommunityPlacehodler9 = NavigatorCapabilityRelocate
+)
+
 func init() {
 	boolset.Sets(map[NavigatorCapability]bool{
-		NavigatorCapabilityCreateFile:            true,
-		NavigatorCapabilityRenameFile:            true,
-		NavigatorCapabilityUploadFile:            true,
-		NavigatorCapabilityDownloadFile:          true,
-		NavigatorCapabilityUpdateMetadata:        true,
-		NavigatorCapabilityListChildren:          true,
-		NavigatorCapabilityGenerateThumb:         true,
-		NavigatorCapabilityDeleteFile:            true,
-		NavigatorCapabilityLockFile:              true,
-		NavigatorCapabilitySoftDelete:            true,
-		NavigatorCapabilityShare:                 true,
-		NavigatorCapabilityInfo:                  true,
-		NavigatorCapabilityVersionControl:        true,
-		NavigatorCapability_CommunityPlacehodler8: true, // Mount storage policy
-		NavigatorCapabilityEnterFolder:           true,
-		NavigatorCapabilityModifyProps:           true,
+		NavigatorCapabilityCreateFile:     true,
+		NavigatorCapabilityRenameFile:     true,
+		NavigatorCapabilitySetPermission:  true,
+		NavigatorCapabilityMoveToMy:       true,
+		NavigatorCapabilityMoveToTrash:    true,
+		NavigatorCapabilityUploadFile:     true,
+		NavigatorCapabilityDownloadFile:   true,
+		NavigatorCapabilityUpdateMetadata: true,
+		NavigatorCapabilityListChildren:   true,
+		NavigatorCapabilityGenerateThumb:  true,
+		NavigatorCapabilityCopyToMy:       true,
+		NavigatorCapabilityDeleteFile:     true,
+		NavigatorCapabilityLockFile:       true,
+		NavigatorCapabilitySoftDelete:     true,
+		NavigatorCapabilityShare:          true,
+		NavigatorCapabilityInfo:           true,
+		NavigatorCapabilityVersionControl: true,
+		NavigatorCapabilityMount:          true, // Mount storage policy
+		NavigatorCapabilityEnterFolder:    true,
+		NavigatorCapabilityModifyProps:    true,
 	}, myNavigatorCapability)
 	boolset.Sets(map[NavigatorCapability]bool{
-		NavigatorCapabilityDownloadFile:          true,
-		NavigatorCapabilityListChildren:          true,
-		NavigatorCapabilityGenerateThumb:         true,
-		NavigatorCapabilityLockFile:              true,
-		NavigatorCapabilityInfo:                  true,
-		NavigatorCapabilityVersionControl:        true,
-		NavigatorCapabilityEnterFolder:           true,
-		NavigatorCapabilityModifyProps:           true,
-		NavigatorCapabilityCreateFile:            true,
-		NavigatorCapabilityRenameFile:            true,
-		NavigatorCapabilityUploadFile:            true,
-		NavigatorCapabilityDeleteFile:            true,
-		NavigatorCapabilitySoftDelete:            true,
-		NavigatorCapabilityUpdateMetadata:        true,
-		NavigatorCapability_CommunityPlacehodler8: true,
+		NavigatorCapabilityDownloadFile:   true,
+		NavigatorCapabilityListChildren:   true,
+		NavigatorCapabilityGenerateThumb:  true,
+		NavigatorCapabilityLockFile:       true,
+		NavigatorCapabilityInfo:           true,
+		NavigatorCapabilityVersionControl: true,
+		NavigatorCapabilityEnterFolder:    true,
+		NavigatorCapabilityModifyProps:    true,
+		NavigatorCapabilityCreateFile:     true,
+		NavigatorCapabilityRenameFile:     true,
+		NavigatorCapabilityUploadFile:     true,
+		NavigatorCapabilityDeleteFile:     true,
+		NavigatorCapabilitySoftDelete:     true,
+		NavigatorCapabilityUpdateMetadata: true,
+		NavigatorCapabilityMoveToShare:    true,
+		NavigatorCapabilityCopyToShare:    true,
+		NavigatorCapabilityMount:          true,
 	}, shareNavigatorCapability)
 	boolset.Sets(map[NavigatorCapability]bool{
 		NavigatorCapabilityListChildren: true,
@@ -154,6 +172,8 @@ func init() {
 		NavigatorCapabilityListChildren: true,
 		NavigatorCapabilityDownloadFile: true,
 		NavigatorCapabilityEnterFolder:  true,
+		NavigatorCapabilityInfo:         true,
+		NavigatorCapabilityCopyToMy:     true,
 	}, sharedWithMeNavigatorCapability)
 }
 
