@@ -90,7 +90,7 @@ func NewServerStaticFS(l logging.Logger, statics fs.FS, isPro bool) (static.Serv
 		staticName += "-pro"
 	}
 
-	if v.Name != staticName {
+	if v.Name != staticName && v.Name != "cloudreve-frontend" && v.Name != "cloudreve-frontend-pro" {
 		l.Error("Static resource version mismatch, please delete \"statics\" folder and rebuild it.")
 	}
 
