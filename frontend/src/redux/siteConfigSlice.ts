@@ -43,6 +43,10 @@ const initialState: SiteConfigSlice = {
     loaded: ConfigLoadState.NotLoaded,
     config: {},
   },
+  vas: {
+    loaded: ConfigLoadState.NotLoaded,
+    config: {},
+  },
   app: {
     loaded: ConfigLoadState.NotLoaded,
     config: {},

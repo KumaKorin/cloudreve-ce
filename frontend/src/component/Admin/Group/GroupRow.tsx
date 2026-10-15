@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { deleteGroup, getGroupDetail } from "../../../api/api";
-import { GroupEnt } from "../../../api/dashboard";
+import { GroupEnt, StoragePolicy } from "../../../api/dashboard";
 import { GroupPermission } from "../../../api/user";
 import { useAppDispatch } from "../../../redux/hooks";
 import { confirmOperation } from "../../../redux/thunks/dialog";
@@ -19,11 +19,12 @@ export interface GroupRowProps {
   group?: GroupEnt;
   loading?: boolean;
   onDelete?: () => void;
+  policies?: Record<number, StoragePolicy>;
 }
 
 export const AnonymousGroupID = 3;
 
-const GroupRow = ({ group, loading, onDelete }: GroupRowProps) => {
+const GroupRow = ({ group, loading, onDelete, policies }: GroupRowProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation("dashboard");
   const dispatch = useAppDispatch();
@@ -138,14 +139,27 @@ const GroupRow = ({ group, loading, onDelete }: GroupRowProps) => {
       </NoWrapTableCell>
       <NoWrapTableCell>
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-          {group?.edges.storage_policies && (
-            <SquareChip
-              onClick={onPolicyClick(group.edges.storage_policies.id)}
-              key={group.edges.storage_policies.id}
-              label={group.edges.storage_policies.name}
-              size="small"
-            />
-          )}
+          {(group?.settings?.storage_policies && group.settings.storage_policies.length > 0
+            ? group.settings.storage_policies
+            : (group?.edges?.storage_policies
+                ? (Array.isArray(group.edges.storage_policies)
+                    ? (group.edges.storage_policies as StoragePolicy[]).map((p) => p.id)
+                    : [(group.edges.storage_policies as StoragePolicy).id])
+                : [])
+          ).map((policyId) => {
+            const edgePolicy = !Array.isArray(group?.edges?.storage_policies) ? group?.edges?.storage_policies : undefined;
+            const policyName =
+              policies?.[policyId]?.name ??
+              (edgePolicy?.id === policyId ? edgePolicy.name : `#${policyId}`);
+            return (
+              <SquareChip
+                onClick={onPolicyClick(policyId)}
+                key={policyId}
+                label={policyName}
+                size="small"
+              />
+            );
+          })}
         </Box>
       </NoWrapTableCell>
       <NoWrapTableCell>

@@ -36,6 +36,7 @@ const defaultGroup: GroupEnt = {
     source_batch: 10,
     aria2_batch: 1,
     redirected_source: true,
+    storage_policies: [1],
   },
   edges: {
     storage_policies: { id: 1 },

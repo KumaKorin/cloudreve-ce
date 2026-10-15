@@ -33,12 +33,24 @@ export const GroupSettingContext = createContext<GroupSettingContextProps>({
 });
 
 const groupValueFilter = (group: GroupEnt): GroupEnt => {
+  const policies =
+    group.settings?.storage_policies && group.settings.storage_policies.length > 0
+      ? group.settings.storage_policies
+      : group.edges?.storage_policies
+        ? Array.isArray(group.edges.storage_policies)
+          ? (group.edges.storage_policies as StoragePolicy[]).map((p) => p.id)
+          : [(group.edges.storage_policies as StoragePolicy).id]
+        : [];
+
   return {
     ...group,
+    settings: {
+      ...group.settings,
+      storage_policies: policies,
+    },
     edges: {
-      storage_policies: {
-        id: group.edges.storage_policies?.id ?? 0,
-      } as StoragePolicy,
+      ...group.edges,
+      storage_policies: policies.length > 0 ? ({ id: policies[0] } as StoragePolicy) : undefined,
     },
   };
 };

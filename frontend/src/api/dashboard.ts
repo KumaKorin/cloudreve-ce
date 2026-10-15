@@ -46,13 +46,14 @@ export interface GroupEnt extends CommonMixin {
   speed_limit?: number;
   permissions?: string;
   edges: {
-    storage_policies?: StoragePolicy;
+    storage_policies?: StoragePolicy | StoragePolicy[];
   };
   total_users?: number;
   settings?: GroupSetting;
 }
 
 export interface GroupSetting {
+  storage_policies?: number[];
   compress_size?: number;
   decompress_size?: number;
   remote_download_options?: Record<string, any>;

@@ -14,8 +14,8 @@ import {
 import { useQueryState } from "nuqs";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { getGroupList } from "../../../api/api";
-import { GroupEnt } from "../../../api/dashboard";
+import { getGroupList, getStoragePolicyList } from "../../../api/api";
+import { GroupEnt, StoragePolicy } from "../../../api/dashboard";
 import { useAppDispatch } from "../../../redux/hooks";
 import { NoWrapTableCell, SecondaryButton, StyledTableContainerPaper } from "../../Common/StyledComponents";
 import Add from "../../Icons/Add";
@@ -33,6 +33,7 @@ const GroupSetting = () => {
   const dispatch = useAppDispatch();
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<GroupEnt[]>([]);
+  const [policies, setPolicies] = useState<Record<number, StoragePolicy>>({});
   const [page, setPage] = useQueryState(PageQuery, { defaultValue: "1" });
   const [pageSize, setPageSize] = useQueryState(PageSizeQuery, {
     defaultValue: "10",
@@ -43,6 +44,18 @@ const GroupSetting = () => {
   const [orderDirection, setOrderDirection] = useQueryState(OrderDirectionQuery, { defaultValue: "desc" });
   const [count, setCount] = useState(0);
   const [createNewOpen, setCreateNewOpen] = useState(false);
+
+  useEffect(() => {
+    dispatch(getStoragePolicyList({ page: 1, page_size: 1000, order_by: "id", order_direction: "asc" }))
+      .then((res) => {
+        const map: Record<number, StoragePolicy> = {};
+        res.policies.forEach((p) => {
+          map[p.id] = p;
+        });
+        setPolicies(map);
+      })
+      .catch(() => {});
+  }, []);
 
   const pageInt = parseInt(page) ?? 1;
   const pageSizeInt = parseInt(pageSize) ?? 11;
@@ -122,7 +135,7 @@ const GroupSetting = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {!loading && groups.map((group) => <GroupRow key={group.id} group={group} onDelete={fetchGroups} />)}
+              {!loading && groups.map((group) => <GroupRow key={group.id} group={group} policies={policies} onDelete={fetchGroups} />)}
               {loading &&
                 groups.length > 0 &&
                 groups.map((group) => <GroupRow key={`loading-${group.id}`} loading={true} />)}

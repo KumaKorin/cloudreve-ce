@@ -7,7 +7,7 @@ import Boolset from "../../../../util/boolset";
 import SizeInput from "../../../Common/SizeInput";
 import { DenseFilledTextField } from "../../../Common/StyledComponents";
 import InPrivate from "../../../Icons/InPrivate";
-import SettingForm, { ProChip } from "../../../Pages/Setting/SettingForm";
+import SettingForm from "../../../Pages/Setting/SettingForm";
 import { NoMarginHelperText, SettingSection, SettingSectionContent } from "../../Settings/Settings";
 import { AnonymousGroupID } from "../GroupRow";
 import { GroupSettingContext } from "./GroupSettingWrapper";
@@ -27,11 +27,31 @@ const BasicInfoSection = () => {
     [setGroup],
   );
 
+  const policies = useMemo(() => {
+    if (values.settings?.storage_policies && values.settings.storage_policies.length > 0) {
+      return values.settings.storage_policies;
+    }
+    if (values.edges?.storage_policies) {
+      if (Array.isArray(values.edges.storage_policies)) {
+        return values.edges.storage_policies.map((p) => p.id);
+      }
+      return [values.edges.storage_policies.id];
+    }
+    return [];
+  }, [values.settings, values.edges]);
+
   const onPolicyChange = useCallback(
-    (value: number) => {
+    (value: number[]) => {
       setGroup((p: GroupEnt) => ({
         ...p,
-        edges: { ...p.edges, storage_policies: { id: value } as StoragePolicy },
+        settings: {
+          ...p.settings,
+          storage_policies: value,
+        },
+        edges: {
+          ...p.edges,
+          storage_policies: value.length > 0 ? ({ id: value[0] } as StoragePolicy) : undefined,
+        },
       }));
     },
     [setGroup],
@@ -79,11 +99,8 @@ const BasicInfoSection = () => {
         {values?.id != AnonymousGroupID && (
           <>
             <SettingForm title={t("group.availablePolicies")} lgWidth={5}>
-              <PolicySelectionInput value={values.edges.storage_policies?.id ?? 0} onChange={onPolicyChange} />
+              <PolicySelectionInput value={policies} onChange={onPolicyChange} />
               <NoMarginHelperText>{t("group.availablePoliciesDes")}</NoMarginHelperText>
-              <NoMarginHelperText>
-                <ProChip size="small" label="Pro" sx={{ ml: 0 }} /> {t("group.availablePolicyDesPro")}
-              </NoMarginHelperText>
             </SettingForm>
             <SettingForm title={t("group.initialStorageQuota")} lgWidth={5}>
               <FormControl fullWidth>

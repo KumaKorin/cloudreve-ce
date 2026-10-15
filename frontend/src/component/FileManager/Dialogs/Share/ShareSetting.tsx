@@ -135,9 +135,9 @@ const ShareSettingContent = ({ setting, file, editing, onSettingChange }: ShareS
 
   const [expanded, setExpanded] = useState<string | undefined>(undefined);
 
-  const pointEnabled = useAppSelector((state) => state.siteConfig.vas.config.point_enabled);
-  const shareGainRate = useAppSelector((state) => state.siteConfig.vas.config.share_point_gain_rate);
-  const vasLoaded = useAppSelector((state) => state.siteConfig.vas.loaded);
+  const pointEnabled = useAppSelector((state) => state.siteConfig.vas?.config?.point_enabled);
+  const shareGainRate = useAppSelector((state) => state.siteConfig.vas?.config?.share_point_gain_rate);
+  const vasLoaded = useAppSelector((state) => state.siteConfig.vas?.loaded ?? ConfigLoadState.NotLoaded);
 
   useEffect(() => {
     if (vasLoaded != ConfigLoadState.Loaded) {

@@ -7,23 +7,27 @@ import { useAppDispatch } from "../../../../redux/hooks";
 import FacebookCircularProgress from "../../../Common/CircularProgress";
 import { DenseSelect, SquareChip } from "../../../Common/StyledComponents";
 import { SquareMenuItem } from "../../../FileManager/ContextMenu/ContextMenu";
+
 export interface PolicySelectionInputProps {
-  value: number;
-  onChange: (value: number) => void;
+  value: number[];
+  onChange: (value: number[]) => void;
+  filter?: (policy: StoragePolicy) => boolean | undefined;
 }
 
-const PolicySelectionInput = ({ value, onChange }: PolicySelectionInputProps) => {
+const PolicySelectionInput = ({ value, onChange, filter }: PolicySelectionInputProps) => {
   const { t } = useTranslation("dashboard");
   const dispatch = useAppDispatch();
   const [policies, setPolicies] = useState<StoragePolicy[]>([]);
   const [loading, setLoading] = useState(false);
   const [policyMap, setPolicyMap] = useState<Record<number, StoragePolicy>>({});
 
+  const selectedValues = Array.isArray(value) ? value : (value ? [value] : []);
+
   const handleChange = (event: SelectChangeEvent<unknown>) => {
     const {
       target: { value },
     } = event;
-    onChange(value as number);
+    onChange(typeof value === "string" ? value.split(",").map(Number) : (value as number[]));
   };
 
   useEffect(() => {
@@ -49,7 +53,8 @@ const PolicySelectionInput = ({ value, onChange }: PolicySelectionInputProps) =>
   return (
     <FormControl fullWidth>
       <DenseSelect
-        value={value}
+        multiple
+        value={selectedValues}
         required
         onChange={handleChange}
         sx={{
@@ -66,10 +71,12 @@ const PolicySelectionInput = ({ value, onChange }: PolicySelectionInputProps) =>
             },
           },
         }}
-        renderValue={(selected: number) => (
+        renderValue={(selected) => (
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
             {!loading ? (
-              <SquareChip size="small" key={selected} label={policyMap[selected]?.name} />
+              (selected as number[]).map((val) => (
+                <SquareChip size="small" key={val} label={policyMap[val]?.name} />
+              ))
             ) : (
               <FacebookCircularProgress size={20} sx={{ mt: "1px" }} />
             )}
@@ -77,7 +84,7 @@ const PolicySelectionInput = ({ value, onChange }: PolicySelectionInputProps) =>
         )}
       >
         {policies.length > 0 &&
-          policies.map((policy) => (
+          policies.filter(filter ?? (() => true)).map((policy) => (
             <SquareMenuItem key={policy.id} value={policy.id}>
               <Box
                 sx={{
