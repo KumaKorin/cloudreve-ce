@@ -6,7 +6,7 @@ package constants
 var BackendVersion = "4.19.1"
 
 // IsPro 是否为Pro版本
-var IsPro = "true"
+var IsPro = "false"
 
 var IsProBool = IsPro == "true"
 

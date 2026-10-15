@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -9,8 +11,13 @@ import (
 )
 
 func main() {
-	zipPath := `D:/Cloudreve_Pro_CE/backend/application/statics/assets.zip`
-	srcDir := `D:/Cloudreve_Pro_CE/frontend/build`
+	zipPath := filepath.Join("application", "statics", "assets.zip")
+	srcDir := filepath.Join("assets", "build")
+	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		if _, err := os.Stat("frontend/build"); err == nil {
+			srcDir = "frontend/build"
+		}
+	}
 
 	outFile, err := os.Create(zipPath)
 	if err != nil {

@@ -35,18 +35,12 @@ diff --git a/application/constants/constants.go b/application/constants/constant
 index bf97df7..aa3a391 100644
 --- a/application/constants/constants.go
 +++ b/application/constants/constants.go
-@@ -3,10 +3,10 @@ package constants
+@@ -3,4 +3,4 @@ package constants
  // These values will be injected at build time, DO NOT EDIT.
  
  // BackendVersion 当前后端版本号
 -var BackendVersion = "4.14.0"
 +var BackendVersion = "4.19.1"
- 
- // IsPro 是否为Pro版本
--var IsPro = "false"
-+var IsPro = "true"
- 
- var IsProBool = IsPro == "true"
  
 diff --git a/inventory/types/types.go b/inventory/types/types.go
 index 8af1614..99f87e1 100644

@@ -2,8 +2,6 @@ module github.com/cloudreve/Cloudreve/v4
 
 go 1.26.0
 
-toolchain go1.26.5
-
 require (
 	entgo.io/ent v0.13.0
 	github.com/Masterminds/semver/v3 v3.3.1
