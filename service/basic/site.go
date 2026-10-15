@@ -177,6 +177,8 @@ func (s *GetSettingService) GetSiteConfig(c *gin.Context) (*SiteConfig, error) {
 		}
 		sort.Strings(result)
 		return &SiteConfig{ThumbExts: result}, nil
+	case "vas":
+		return &SiteConfig{}, nil
 	default:
 		break
 	}

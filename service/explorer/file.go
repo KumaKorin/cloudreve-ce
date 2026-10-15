@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
+	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
@@ -785,6 +786,26 @@ func (s *FulltextSearchService) Search(c *gin.Context) (*FullTextSearchResults, 
 	return BuildFullTextSearchResults(c, user, dep.HashIDEncoder(), results), nil
 }
 
+func getAllowedPolicyIDsForUser(u *ent.User) (allowedIDs map[int]bool, isAll bool) {
+	if u == nil {
+		return nil, false
+	}
+	if u.Edges.Group != nil && u.Edges.Group.Permissions != nil && u.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) {
+		return nil, true
+	}
+	allowed := make(map[int]bool)
+	if u.Edges.Group != nil {
+		if u.Edges.Group.Settings != nil && len(u.Edges.Group.Settings.StoragePolicies) > 0 {
+			for _, id := range u.Edges.Group.Settings.StoragePolicies {
+				allowed[id] = true
+			}
+		} else if u.Edges.Group.StoragePolicyID > 0 {
+			allowed[u.Edges.Group.StoragePolicyID] = true
+		}
+	}
+	return allowed, false
+}
+
 type (
 	UserPolicyService  struct{}
 	UserPolicyParamCtx struct{}
@@ -808,10 +829,13 @@ func (s *UserPolicyService) List(c *gin.Context) ([]*StoragePolicy, error) {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to list policies", err)
 	}
 
+	allowedIDs, isAll := getAllowedPolicyIDsForUser(u)
 	hasher := dep.HashIDEncoder()
 	policies := make([]*StoragePolicy, 0, len(res.Policies))
 	for _, p := range res.Policies {
-		policies = append(policies, BuildStoragePolicy(p, hasher))
+		if isAll || allowedIDs[p.ID] {
+			policies = append(policies, BuildStoragePolicy(p, hasher))
+		}
 	}
 	return policies, nil
 }
@@ -864,6 +888,11 @@ func (s *MountPolicyService) Mount(c *gin.Context) ([]*StoragePolicy, error) {
 	}
 
 	if policyID > 0 {
+		allowedIDs, isAll := getAllowedPolicyIDsForUser(user)
+		if !isAll && !allowedIDs[policyID] {
+			return nil, serializer.NewError(serializer.CodeNoPermissionErr, "group not authorized to use this storage policy", nil)
+		}
+
 		_, err := dep.StoragePolicyClient().GetPolicyByID(c, policyID)
 		if err != nil {
 			return nil, serializer.NewError(serializer.CodeNotFound, "storage policy not found", err)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v4/pkg/conf"
 )
@@ -68,15 +69,50 @@ func (c *groupClient) CountUsers(ctx context.Context, id int) (int, error) {
 	return c.client.Group.Query().Where(group.ID(id)).QueryUsers().Count(ctx)
 }
 
+func normalizeGroupSettings(g *ent.Group) *ent.Group {
+	if g == nil {
+		return nil
+	}
+	if g.Settings == nil {
+		g.Settings = &types.GroupSetting{}
+	}
+	if len(g.Settings.StoragePolicies) == 0 && g.StoragePolicyID > 0 {
+		g.Settings.StoragePolicies = []int{g.StoragePolicyID}
+	}
+	return g
+}
+
 func (c *groupClient) AnonymousGroup(ctx context.Context) (*ent.Group, error) {
-	return withGroupEagerLoading(ctx, c.client.Group.Query().Where(group.ID(AnonymousGroupID))).First(ctx)
+	g, err := withGroupEagerLoading(ctx, c.client.Group.Query().Where(group.ID(AnonymousGroupID))).First(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeGroupSettings(g), nil
 }
 
 func (c *groupClient) ListAll(ctx context.Context) ([]*ent.Group, error) {
-	return withGroupEagerLoading(ctx, c.client.Group.Query()).All(ctx)
+	groups, err := withGroupEagerLoading(ctx, c.client.Group.Query()).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range groups {
+		normalizeGroupSettings(g)
+	}
+	return groups, nil
 }
 
 func (c *groupClient) Upsert(ctx context.Context, group *ent.Group) (*ent.Group, error) {
+	primaryPolicyID := 0
+	if group.Settings != nil && len(group.Settings.StoragePolicies) > 0 {
+		primaryPolicyID = group.Settings.StoragePolicies[0]
+	} else if group.Edges.StoragePolicies != nil && group.Edges.StoragePolicies.ID > 0 {
+		primaryPolicyID = group.Edges.StoragePolicies.ID
+		if group.Settings == nil {
+			group.Settings = &types.GroupSetting{}
+		}
+		group.Settings.StoragePolicies = []int{primaryPolicyID}
+	}
+
 	if group.ID == 0 {
 		stm := c.client.Group.Create().
 			SetName(group.Name).
@@ -85,11 +121,15 @@ func (c *groupClient) Upsert(ctx context.Context, group *ent.Group) (*ent.Group,
 			SetPermissions(group.Permissions).
 			SetSettings(group.Settings)
 
-		if group.Edges.StoragePolicies != nil && group.Edges.StoragePolicies.ID > 0 {
-			stm.SetStoragePolicyID(group.Edges.StoragePolicies.ID)
+		if primaryPolicyID > 0 {
+			stm.SetStoragePolicyID(primaryPolicyID)
 		}
 
-		return stm.Save(ctx)
+		res, err := stm.Save(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeGroupSettings(res), nil
 	}
 
 	stm := c.client.Group.UpdateOne(group).
@@ -100,8 +140,8 @@ func (c *groupClient) Upsert(ctx context.Context, group *ent.Group) (*ent.Group,
 		SetSettings(group.Settings).
 		ClearStoragePolicies()
 
-	if group.Edges.StoragePolicies != nil && group.Edges.StoragePolicies.ID > 0 {
-		stm.SetStoragePolicyID(group.Edges.StoragePolicies.ID)
+	if primaryPolicyID > 0 {
+		stm.SetStoragePolicyID(primaryPolicyID)
 	}
 
 	res, err := stm.Save(ctx)
@@ -109,7 +149,7 @@ func (c *groupClient) Upsert(ctx context.Context, group *ent.Group) (*ent.Group,
 		return nil, err
 	}
 
-	return res, nil
+	return normalizeGroupSettings(res), nil
 }
 
 func (c *groupClient) Delete(ctx context.Context, id int) error {
@@ -141,6 +181,10 @@ func (c *groupClient) ListGroups(ctx context.Context, args *ListGroupParameters)
 		return nil, err
 	}
 
+	for _, g := range groups {
+		normalizeGroupSettings(g)
+	}
+
 	return &ListGroupResult{
 		Groups: groups,
 		PaginationResults: &PaginationResults{
@@ -152,7 +196,11 @@ func (c *groupClient) ListGroups(ctx context.Context, args *ListGroupParameters)
 }
 
 func (c *groupClient) GetByID(ctx context.Context, id int) (*ent.Group, error) {
-	return withGroupEagerLoading(ctx, c.client.Group.Query().Where(group.ID(id))).First(ctx)
+	g, err := withGroupEagerLoading(ctx, c.client.Group.Query().Where(group.ID(id))).First(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeGroupSettings(g), nil
 }
 
 func getGroupOrderOption(args *ListGroupParameters) []group.OrderOption {
