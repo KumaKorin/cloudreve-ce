@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
@@ -783,3 +784,103 @@ func (s *FulltextSearchService) Search(c *gin.Context) (*FullTextSearchResults, 
 
 	return BuildFullTextSearchResults(c, user, dep.HashIDEncoder(), results), nil
 }
+
+type (
+	UserPolicyService  struct{}
+	UserPolicyParamCtx struct{}
+)
+
+func (s *UserPolicyService) List(c *gin.Context) ([]*StoragePolicy, error) {
+	dep := dependency.FromContext(c)
+	storagePolicyClient := dep.StoragePolicyClient()
+	u := inventory.UserFromContext(c)
+	if u == nil || inventory.IsAnonymousUser(u) {
+		return nil, serializer.NewError(serializer.CodeCheckLogin, "Login required", nil)
+	}
+
+	res, err := storagePolicyClient.ListPolicies(c, &inventory.ListPolicyParameters{
+		PaginationArgs: &inventory.PaginationArgs{
+			Page:     0,
+			PageSize: 1000,
+		},
+	})
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodeDBError, "Failed to list policies", err)
+	}
+
+	hasher := dep.HashIDEncoder()
+	policies := make([]*StoragePolicy, 0, len(res.Policies))
+	for _, p := range res.Policies {
+		policies = append(policies, BuildStoragePolicy(p, hasher))
+	}
+	return policies, nil
+}
+
+type (
+	MountPolicyService struct {
+		Uri      string `json:"uri" binding:"required"`
+		PolicyID string `json:"policy_id"`
+	}
+	MountPolicyParamCtx struct{}
+)
+
+func (s *MountPolicyService) Mount(c *gin.Context) ([]*StoragePolicy, error) {
+	dep := dependency.FromContext(c)
+	user := inventory.UserFromContext(c)
+	m := manager.NewFileManager(dep, user)
+	defer m.Recycle()
+
+	uri, err := fs.NewUriFromString(s.Uri)
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodeParamErr, "unknown uri", err)
+	}
+
+	f, err := m.Get(c, uri)
+	if err != nil {
+		return nil, err
+	}
+
+	if f.Type() != types.FileTypeFolder {
+		return nil, serializer.NewError(serializer.CodeParamErr, "can only mount storage policy on folder", nil)
+	}
+
+	isAdmin := user != nil && user.Edges.Group != nil && user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin))
+	if user == nil || (f.OwnerID() != user.ID && !isAdmin) {
+		return nil, fs.ErrOwnerOnly
+	}
+
+	policyID := 0
+	if s.PolicyID != "" && s.PolicyID != "0" {
+		decodedID, err := dep.HashIDEncoder().Decode(s.PolicyID, hashid.PolicyID)
+		if err != nil {
+			if id, parseErr := strconv.Atoi(s.PolicyID); parseErr == nil {
+				policyID = id
+			} else {
+				return nil, serializer.NewError(serializer.CodeParamErr, "invalid policy id", err)
+			}
+		} else {
+			policyID = decodedID
+		}
+	}
+
+	if policyID > 0 {
+		_, err := dep.StoragePolicyClient().GetPolicyByID(c, policyID)
+		if err != nil {
+			return nil, serializer.NewError(serializer.CodeNotFound, "storage policy not found", err)
+		}
+	}
+
+	uQuery := dep.DBClient().File.UpdateOneID(f.ID())
+	if policyID > 0 {
+		uQuery.SetStoragePoliciesID(policyID)
+	} else {
+		uQuery.ClearStoragePolicies()
+	}
+
+	if err := uQuery.Exec(c); err != nil {
+		return nil, serializer.NewError(serializer.CodeDBError, "failed to update folder policy", err)
+	}
+
+	return nil, nil
+}
+

@@ -16,6 +16,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cluster/routes"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
+	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs/dbfs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/queue"
@@ -263,6 +264,7 @@ type FileResponse struct {
 	Type          int                 `json:"type"`
 	ID            string              `json:"id"`
 	Name          string              `json:"name"`
+	Permission    string              `json:"permission,omitempty"`
 	CreatedAt     time.Time           `json:"created_at"`
 	UpdatedAt     time.Time           `json:"updated_at"`
 	Size          int64               `json:"size"`
@@ -278,12 +280,14 @@ type FileResponse struct {
 }
 
 type ExtendedInfo struct {
-	StoragePolicy *StoragePolicy      `json:"storage_policy,omitempty"`
-	StorageUsed   int64               `json:"storage_used"`
-	Shares        []Share             `json:"shares,omitempty"`
-	Entities      []Entity            `json:"entities,omitempty"`
-	View          *types.ExplorerView `json:"view,omitempty"`
-	DirectLinks   []DirectLink        `json:"direct_links,omitempty"`
+	StoragePolicy          *StoragePolicy              `json:"storage_policy,omitempty"`
+	StoragePolicyInherited bool                        `json:"storage_policy_inherited"`
+	StorageUsed            int64                       `json:"storage_used"`
+	Shares                 []Share                     `json:"shares,omitempty"`
+	Entities               []Entity                    `json:"entities,omitempty"`
+	Permissions            *types.PermissionSettingReq `json:"permissions,omitempty"`
+	View                   *types.ExplorerView         `json:"view,omitempty"`
+	DirectLinks            []DirectLink                `json:"direct_links,omitempty"`
 }
 
 type DirectLink struct {
@@ -333,6 +337,8 @@ type Share struct {
 	Url               string          `json:"url"`
 	ShowReadMe        bool            `json:"show_readme,omitempty"`
 	Size              int64           `json:"size"`
+	PermissionSetting *types.PermissionSettingReq `json:"permission_setting,omitempty"`
+	Permission        string                      `json:"permission,omitempty"`
 
 	// Only viewable by owner
 	IsPrivate bool   `json:"is_private,omitempty"`
@@ -374,9 +380,16 @@ func BuildShare(ctx context.Context, s *ent.Share, base *url.URL, hasher hashid.
 		}
 	}
 
+	var permSetting *types.PermissionSettingReq
+	if s.Props != nil {
+		permSetting = s.Props.Permissions
+	}
+	res.Permission = dbfs.EvaluateSharePermission(permSetting, requester, owner, hasher)
+
 	if requester.ID == owner.ID {
 		res.IsPrivate = s.Password != ""
 		res.ShareView = s.Props != nil && s.Props.ShareView
+		res.PermissionSetting = permSetting
 	}
 
 	return &res
@@ -418,6 +431,7 @@ func BuildFileResponse(ctx context.Context, u *ent.User, f fs.File, hasher hashi
 		Type:          int(f.Type()),
 		ID:            hashid.EncodeFileID(hasher, f.ID()),
 		Name:          f.DisplayName(),
+		Permission:    f.Permission(),
 		CreatedAt:     f.CreatedAt(),
 		UpdatedAt:     f.UpdatedAt(),
 		Size:          f.Size(),
@@ -443,8 +457,9 @@ func BuildExtendedInfo(ctx context.Context, u *ent.User, f fs.File, hasher hashi
 	base := dep.SettingProvider().SiteURL(ctx)
 
 	ext := &ExtendedInfo{
-		StoragePolicy: BuildStoragePolicy(extendedInfo.StoragePolicy, hasher),
-		StorageUsed:   extendedInfo.StorageUsed,
+		StoragePolicy:          BuildStoragePolicy(extendedInfo.StoragePolicy, hasher),
+		StoragePolicyInherited: extendedInfo.StoragePolicyInherited,
+		StorageUsed:            extendedInfo.StorageUsed,
 		Entities: lo.Map(f.Entities(), func(e fs.Entity, index int) Entity {
 			return BuildEntity(ctx, extendedInfo, e, hasher)
 		}),
@@ -453,12 +468,13 @@ func BuildExtendedInfo(ctx context.Context, u *ent.User, f fs.File, hasher hashi
 		}),
 	}
 
-	if u.ID == f.OwnerID() {
-		// Only owner can see the shares settings.
+	if u.ID == f.OwnerID() || (u.Edges.Group != nil && u.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin))) {
+		// Only owner/admin can see the shares settings.
 		ext.Shares = lo.Map(extendedInfo.Shares, func(s *ent.Share, index int) Share {
 			return *BuildShare(ctx, s, base, hasher, u, u, f.DisplayName(), f.Type(), true, false)
 		})
 		ext.View = extendedInfo.View
+		ext.Permissions = extendedInfo.Permissions
 	}
 
 	return ext

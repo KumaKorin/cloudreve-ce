@@ -196,7 +196,8 @@ type (
 	PolicyType string
 
 	FileProps struct {
-		View *ExplorerView `json:"view,omitempty"`
+		View        *ExplorerView         `json:"view,omitempty"`
+		Permissions *PermissionSettingReq `json:"permissions,omitempty"`
 	}
 
 	ExplorerView struct {
@@ -225,6 +226,17 @@ type (
 		ShareView bool `json:"share_view,omitempty"`
 		// Whether to automatically show readme file in share view
 		ShowReadMe bool `json:"show_read_me,omitempty"`
+		// Collaborative sharing permissions
+		Permissions *PermissionSettingReq `json:"permissions,omitempty"`
+	}
+
+	PermissionSettingReq struct {
+		SameGroup     string            `json:"same_group,omitempty"`
+		Everyone      string            `json:"everyone,omitempty"`
+		Other         string            `json:"other,omitempty"`
+		Anonymous     string            `json:"anonymous,omitempty"`
+		GroupExplicit map[string]string `json:"group_explicit,omitempty"`
+		UserExplicit  map[string]string `json:"user_explicit,omitempty"`
 	}
 
 	OAuthClientProps struct {
@@ -296,6 +308,15 @@ const (
 	DavAccountReadOnly DavAccountOption = iota
 	DavAccountProxy
 	DavAccountDisableSysFiles
+)
+
+const (
+	FilePermissionRead FilePermission = iota
+	FilePermissionUpdate
+	FilePermissionCreate
+	FilePermissionDelete
+	FilePermissionShare
+	FilePermissionList
 )
 
 const (

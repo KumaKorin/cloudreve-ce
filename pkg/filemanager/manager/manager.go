@@ -81,6 +81,8 @@ type (
 		GetStorageDriver(ctx context.Context, policy *ent.StoragePolicy) (driver.Handler, error)
 		// PatchView patches the view setting of a file
 		PatchView(ctx context.Context, uri *fs.URI, view *types.ExplorerView) error
+		// PatchPermission patches the permission setting of a file
+		PatchPermission(ctx context.Context, uri *fs.URI, setting *types.PermissionSettingReq) error
 	}
 
 	ShareManagement interface {
@@ -123,6 +125,7 @@ type (
 		Expire          *time.Time
 		ShareView       bool
 		ShowReadMe      bool
+		Permissions     *types.PermissionSettingReq
 	}
 
 	FullTextSearchResults struct {

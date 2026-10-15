@@ -1,6 +1,7 @@
 package dbfs
 
 import (
+	"context"
 	"encoding/gob"
 	"path"
 	"sync"
@@ -51,6 +52,7 @@ type (
 		CapabilitiesBs    *boolset.BooleanSet
 		FileExtendedInfo  *fs.FileExtendedInfo
 		FileFolderSummary *fs.FolderSummary
+		PermissionStr     string
 
 		disableView bool
 		mu          *sync.Mutex
@@ -280,9 +282,47 @@ func (f *File) AncestorsChain() []*File {
 	return ancestors
 }
 
+func (f *File) Permission() string {
+	return f.PermissionStr
+}
+
 func (f *File) PolicyID() int {
 	root := f
 	return root.Model.StoragePolicyFiles
+}
+
+// EffectivePolicyID returns the effective storage policy ID and whether it was inherited from an ancestor.
+func (f *File) EffectivePolicyID(ctx context.Context, fc inventory.FileClient) (int, bool) {
+	if f == nil || f.Model == nil {
+		return 0, false
+	}
+	// Direct mount on this folder
+	if f.Model.StoragePolicyFiles > 0 {
+		return f.Model.StoragePolicyFiles, false
+	}
+	// Walk in-memory parent chain
+	curr := f.Parent
+	for curr != nil {
+		if curr.Model != nil && curr.Model.StoragePolicyFiles > 0 {
+			return curr.Model.StoragePolicyFiles, true
+		}
+		curr = curr.Parent
+	}
+	// If parent in-memory chain is exhausted but database parent exists, walk up DB
+	if fc != nil && f.Model.FileChildren > 0 {
+		parentID := f.Model.FileChildren
+		for parentID > 0 {
+			parentFile, err := fc.GetByID(ctx, parentID)
+			if err != nil || parentFile == nil {
+				break
+			}
+			if parentFile.StoragePolicyFiles > 0 {
+				return parentFile.StoragePolicyFiles, true
+			}
+			parentID = parentFile.FileChildren
+		}
+	}
+	return 0, false
 }
 
 // IsRootFolder return true if the file is the root folder under user's view.
@@ -376,6 +416,7 @@ func (f *File) Recycle() {
 	f.FileExtendedInfo = nil
 	f.FileFolderSummary = nil
 	f.disableView = false
+	f.PermissionStr = ""
 	f.mu = nil
 
 	filePool.Put(f)

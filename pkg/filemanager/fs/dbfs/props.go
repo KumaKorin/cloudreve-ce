@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
@@ -48,6 +49,14 @@ func (f *DBFS) PatchProps(ctx context.Context, uri *fs.URI, props *types.FilePro
 		}
 	}
 
+	if props.Permissions != nil {
+		if delete {
+			currentProps.Permissions = nil
+		} else {
+			currentProps.Permissions = props.Permissions
+		}
+	}
+
 	if _, err := f.fileClient.UpdateProps(ctx, target.Model, currentProps); err != nil {
 		return serializer.NewError(serializer.CodeDBError, "failed to update file props", err)
 	}
@@ -71,8 +80,18 @@ func (f *DBFS) PatchMetadata(ctx context.Context, path []*fs.URI, metas ...fs.Me
 			continue
 		}
 
+		fileCtx := ctx
+		if p.FileSystem() == constants.FileSystemShare {
+			if sn, ok := navigator.(*shareNavigator); ok {
+				if !sn.HasPermission(types.FilePermissionUpdate) {
+					return fs.ErrOwnerOnly.WithError(fmt.Errorf("no permission in share"))
+				}
+				fileCtx = WithBypassOwnerCheck(ctx)
+			}
+		}
+
 		// Require Update permission
-		if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.OwnerID() != f.user.ID {
+		if _, ok := fileCtx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.OwnerID() != f.user.ID {
 			return fs.ErrOwnerOnly.WithError(fmt.Errorf("permission denied"))
 		}
 

@@ -25,8 +25,9 @@ type (
 		Password        string `json:"password" binding:"omitempty,max=32,alphanum"`
 		RemainDownloads int    `json:"downloads"`
 		Expire          int    `json:"expire"`
-		ShareView       bool   `json:"share_view"`
-		ShowReadMe      bool   `json:"show_readme"`
+		ShareView       bool                        `json:"share_view"`
+		ShowReadMe      bool                        `json:"show_readme"`
+		Permissions     *types.PermissionSettingReq `json:"permissions"`
 	}
 	ShareCreateParamCtx struct{}
 
@@ -90,6 +91,7 @@ func (service *ShareCreateService) Upsert(c *gin.Context, existed int) (string, 
 		ExistedShareID:  existed,
 		ShareView:       service.ShareView,
 		ShowReadMe:      service.ShowReadMe,
+		Permissions:     service.Permissions,
 	})
 	if err != nil {
 		return "", err

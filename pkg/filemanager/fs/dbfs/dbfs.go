@@ -420,11 +420,12 @@ func (f *DBFS) Get(ctx context.Context, path *fs.URI, opts ...fs.Option) (fs.Fil
 			extendedInfo.DirectLinks = target.Model.Edges.DirectLinks
 		}
 
-		policyID := target.PolicyID()
+		policyID, inherited := target.EffectivePolicyID(ctx, f.fileClient)
 		if policyID > 0 {
 			policy, err := f.storagePolicyClient.GetPolicyByID(ctx, policyID)
 			if err == nil {
 				extendedInfo.StoragePolicy = policy
+				extendedInfo.StoragePolicyInherited = inherited
 			}
 		}
 
@@ -433,6 +434,7 @@ func (f *DBFS) Get(ctx context.Context, path *fs.URI, opts ...fs.Option) (fs.Fil
 			target.FileExtendedInfo.Shares = target.Model.Edges.Shares
 			if target.Model.Props != nil {
 				target.FileExtendedInfo.View = target.Model.Props.View
+				target.FileExtendedInfo.Permissions = target.Model.Props.Permissions
 			}
 		}
 
@@ -451,6 +453,12 @@ func (f *DBFS) Get(ctx context.Context, path *fs.URI, opts ...fs.Option) (fs.Fil
 
 	// Calculate folder summary if requested
 	if o.loadFolderSummary && target != nil && target.Type() == types.FileTypeFolder {
+		if path.FileSystem() == constants.FileSystemShare {
+			if sn, ok := navigator.(*shareNavigator); ok && sn.HasPermission(types.FilePermissionList) {
+				ctx = WithBypassOwnerCheck(ctx)
+			}
+		}
+
 		if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.OwnerID() != f.user.ID {
 			return nil, fs.ErrOwnerOnly
 		}
@@ -544,6 +552,12 @@ func (f *DBFS) Walk(ctx context.Context, path *fs.URI, depth int, walk fs.WalkFu
 	target, err := f.getFileByPath(ctx, navigator, path)
 	if err != nil {
 		return err
+	}
+
+	if path.FileSystem() == constants.FileSystemShare {
+		if sn, ok := navigator.(*shareNavigator); ok && sn.HasPermission(types.FilePermissionRead) {
+			ctx = WithBypassOwnerCheck(ctx)
+		}
 	}
 
 	// Require Read permission
@@ -667,6 +681,17 @@ func (f *DBFS) generateEncryptMetadata(ctx context.Context, uploadRequest *fs.Up
 
 // getPreferredPolicy tries to get the preferred storage policy for the given file.
 func (f *DBFS) getPreferredPolicy(ctx context.Context, file *File) (*ent.StoragePolicy, error) {
+	if file != nil {
+		policyID, _ := file.EffectivePolicyID(ctx, f.fileClient)
+		if policyID > 0 {
+			sc, _ := inventory.InheritTx(ctx, f.storagePolicyClient)
+			policy, err := sc.GetPolicyByID(ctx, policyID)
+			if err == nil && policy != nil {
+				return policy, nil
+			}
+		}
+	}
+
 	ownerGroup := file.Owner().Edges.Group
 	if ownerGroup == nil {
 		return nil, fmt.Errorf("owner group not loaded")
@@ -804,14 +829,21 @@ func generateSavePath(policy *ent.StoragePolicy, req *fs.UploadRequest, user *en
 
 func canMoveOrCopyTo(src, dst *fs.URI, isCopy bool) bool {
 	if isCopy {
-		return src.FileSystem() == dst.FileSystem() && src.FileSystem() == constants.FileSystemMy
+		if src.FileSystem() == dst.FileSystem() && src.FileSystem() == constants.FileSystemMy {
+			return true
+		}
+		if src.FileSystem() == constants.FileSystemShare && dst.FileSystem() == constants.FileSystemShare && src.ID("") == dst.ID("") {
+			return true
+		}
+		return false
 	} else {
 		switch src.FileSystem() {
 		case constants.FileSystemMy:
 			return dst.FileSystem() == constants.FileSystemMy || dst.FileSystem() == constants.FileSystemTrash
 		case constants.FileSystemTrash:
 			return dst.FileSystem() == constants.FileSystemMy
-
+		case constants.FileSystemShare:
+			return dst.FileSystem() == constants.FileSystemShare && src.ID("") == dst.ID("")
 		}
 	}
 

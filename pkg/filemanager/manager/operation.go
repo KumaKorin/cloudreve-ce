@@ -322,8 +322,9 @@ func (l *manager) CreateOrUpdateShare(ctx context.Context, path *fs.URI, args *C
 	}
 
 	props := &types.ShareProps{
-		ShareView:  args.ShareView,
-		ShowReadMe: args.ShowReadMe,
+		ShareView:   args.ShareView,
+		ShowReadMe:  args.ShowReadMe,
+		Permissions: args.Permissions,
 	}
 
 	share, err := shareClient.Upsert(ctx, &inventory.CreateShareParams{
@@ -378,6 +379,17 @@ func (m *manager) PatchView(ctx context.Context, uri *fs.URI, view *types.Explor
 	}
 
 	return nil
+}
+
+func (m *manager) PatchPermission(ctx context.Context, uri *fs.URI, setting *types.PermissionSettingReq) error {
+	patch := &types.FileProps{
+		Permissions: setting,
+	}
+	isDelete := setting == nil
+	if isDelete {
+		patch.Permissions = &types.PermissionSettingReq{}
+	}
+	return m.fs.PatchProps(ctx, uri, patch, isDelete)
 }
 
 func getEntityDisplayName(f fs.File, e fs.Entity) string {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
@@ -55,6 +56,15 @@ func (f *DBFS) Create(ctx context.Context, path *fs.URI, fileType types.FileType
 		// File with the same name but different type already exist
 		return nil, fs.ErrFileExisted.
 			WithError(fmt.Errorf("object with the same name but different type %v already exist", ancestor.Type()))
+	}
+
+	if path.FileSystem() == constants.FileSystemShare {
+		if sn, ok := navigator.(*shareNavigator); ok {
+			if !sn.HasPermission(types.FilePermissionCreate) {
+				return nil, fs.ErrOwnerOnly.WithError(fmt.Errorf("no create permission in share"))
+			}
+			ctx = WithBypassOwnerCheck(ctx)
+		}
 	}
 
 	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && ancestor.Owner().ID != f.user.ID {
@@ -162,6 +172,15 @@ func (f *DBFS) Rename(ctx context.Context, path *fs.URI, newName string) (fs.Fil
 	}
 	oldName := target.Name()
 
+	if path.FileSystem() == constants.FileSystemShare {
+		if sn, ok := navigator.(*shareNavigator); ok {
+			if !sn.HasPermission(types.FilePermissionUpdate) {
+				return nil, nil, fs.ErrOwnerOnly.WithError(fmt.Errorf("no rename permission in share"))
+			}
+			ctx = WithBypassOwnerCheck(ctx)
+		}
+	}
+
 	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.Owner().ID != f.user.ID {
 		return nil, nil, fs.ErrOwnerOnly
 	}
@@ -265,7 +284,18 @@ func (f *DBFS) SoftDelete(ctx context.Context, path ...*fs.URI) error {
 			continue
 		}
 
-		if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.Owner().ID != f.user.ID {
+		fileCtx := ctx
+		if p.FileSystem() == constants.FileSystemShare {
+			if sn, ok := navigator.(*shareNavigator); ok {
+				if !sn.HasPermission(types.FilePermissionDelete) {
+					ae.Add(p.String(), fs.ErrOwnerOnly.WithError(fmt.Errorf("no delete permission in share")))
+					continue
+				}
+				fileCtx = WithBypassOwnerCheck(ctx)
+			}
+		}
+
+		if _, ok := fileCtx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.Owner().ID != f.user.ID {
 			ae.Add(p.String(), fs.ErrOwnerOnly.WithError(fmt.Errorf("only file owner can delete file without trash bin")))
 			continue
 		}
@@ -359,7 +389,19 @@ func (f *DBFS) Delete(ctx context.Context, path []*fs.URI, opts ...fs.Option) ([
 			continue
 		}
 
-		if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !o.SysSkipSoftDelete && !ok && target.Owner().ID != f.user.ID {
+		fileCtx := ctx
+		if p.FileSystem() == constants.FileSystemShare {
+			if sn, ok := navigator.(*shareNavigator); ok {
+				if !sn.HasPermission(types.FilePermissionDelete) {
+					ae.Add(p.String(), fs.ErrOwnerOnly.WithError(fmt.Errorf("no delete permission in share")))
+					continue
+				}
+				fileCtx = WithBypassOwnerCheck(ctx)
+				ctx = fileCtx
+			}
+		}
+
+		if _, ok := fileCtx.Value(ByPassOwnerCheckCtxKey{}).(bool); !o.SysSkipSoftDelete && !ok && target.Owner().ID != f.user.ID {
 			ae.Add(p.String(), fs.ErrOwnerOnly)
 			continue
 		}
@@ -546,6 +588,15 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 		return nil, fmt.Errorf("faield to get destination folder: %w", err)
 	}
 
+	if dst.FileSystem() == constants.FileSystemShare {
+		if sn, ok := dstNavigator.(*shareNavigator); ok {
+			if !sn.HasPermission(types.FilePermissionCreate) {
+				return nil, fs.ErrOwnerOnly.WithError(fmt.Errorf("no create permission in destination share"))
+			}
+			ctx = WithBypassOwnerCheck(ctx)
+		}
+	}
+
 	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && destination.Owner().ID != f.user.ID {
 		return nil, fs.ErrOwnerOnly
 	}
@@ -582,7 +633,23 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 			continue
 		}
 
-		if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.Owner().ID != f.user.ID {
+		fileCtx := ctx
+		if p.FileSystem() == constants.FileSystemShare {
+			if sn, ok := navigator.(*shareNavigator); ok {
+				perm := types.FilePermissionDelete
+				if isCopy {
+					perm = types.FilePermissionRead
+				}
+				if !sn.HasPermission(perm) {
+					ae.Add(p.String(), fs.ErrOwnerOnly.WithError(fmt.Errorf("no permission in source share")))
+					continue
+				}
+				fileCtx = WithBypassOwnerCheck(ctx)
+				ctx = fileCtx
+			}
+		}
+
+		if _, ok := fileCtx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.Owner().ID != f.user.ID {
 			ae.Add(p.String(), fs.ErrOwnerOnly)
 			continue
 		}

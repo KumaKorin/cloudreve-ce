@@ -477,3 +477,42 @@ func FulltextSearch(c *gin.Context) {
 		Data: resp,
 	})
 }
+
+// MountStoragePolicy mounts storage policy to folder
+func MountStoragePolicy(c *gin.Context) {
+	service := ParametersFromContext[*explorer.MountPolicyService](c, explorer.MountPolicyParamCtx{})
+	res, err := service.Mount(c)
+	if err != nil {
+		c.JSON(200, serializer.Err(c, err))
+		c.Abort()
+		return
+	}
+
+	c.JSON(200, serializer.Response{Data: res})
+}
+
+// SetFilePermission sets permission for files
+func SetFilePermission(c *gin.Context) {
+	service := ParametersFromContext[*explorer.SetPermissionService](c, explorer.SetPermissionParamCtx{})
+	if err := service.Set(c); err != nil {
+		c.JSON(200, serializer.Err(c, err))
+		c.Abort()
+		return
+	}
+
+	c.JSON(200, serializer.Response{})
+}
+
+// ClearFilePermission clears permission for files
+func ClearFilePermission(c *gin.Context) {
+	service := ParametersFromContext[*explorer.ClearPermissionService](c, explorer.ClearPermissionParamCtx{})
+	if err := service.Clear(c); err != nil {
+		c.JSON(200, serializer.Err(c, err))
+		c.Abort()
+		return
+	}
+
+	c.JSON(200, serializer.Response{})
+}
+
+

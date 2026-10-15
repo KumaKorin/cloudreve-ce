@@ -8,6 +8,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
@@ -105,6 +106,19 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 	// If file not exist, only empty entity / version entity is allowed
 	if !fileExisted && (req.Props.EntityType != nil && *req.Props.EntityType != types.EntityTypeVersion) {
 		return nil, fs.ErrPathNotExist
+	}
+
+	if req.Props.Uri.FileSystem() == constants.FileSystemShare {
+		if sn, ok := navigator.(*shareNavigator); ok {
+			perm := types.FilePermissionCreate
+			if fileExisted {
+				perm = types.FilePermissionUpdate
+			}
+			if !sn.HasPermission(perm) {
+				return nil, fs.ErrOwnerOnly.WithError(fmt.Errorf("no upload permission in share"))
+			}
+			ctx = WithBypassOwnerCheck(ctx)
+		}
 	}
 
 	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && ancestor.OwnerID() != f.user.ID {
@@ -407,6 +421,10 @@ func (f *DBFS) CancelUploadSession(ctx context.Context, path *fs.URI, sessionID 
 			release()
 			ctx = fs.LockSessionToContext(ctx, ls)
 		}
+	}
+
+	if path.FileSystem() == constants.FileSystemShare {
+		ctx = WithBypassOwnerCheck(ctx)
 	}
 
 	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && filePrivate.OwnerID() != f.user.ID {

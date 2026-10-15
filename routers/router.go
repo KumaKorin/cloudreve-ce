@@ -701,6 +701,24 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 				middleware.ValidateBatchFileCount(dep, explorer.PatchMetadataParameterCtx{}),
 				controllers.PatchMetadata,
 			)
+			// Patch storage policy (Mount)
+			file.PATCH("policy",
+				middleware.RequiredScopes(types.ScopeFilesWrite),
+				controllers.FromJSON[explorer.MountPolicyService](explorer.MountPolicyParamCtx{}),
+				controllers.MountStoragePolicy,
+			)
+			// Set file permissions
+			file.POST("permission",
+				middleware.RequiredScopes(types.ScopeFilesWrite),
+				controllers.FromJSON[explorer.SetPermissionService](explorer.SetPermissionParamCtx{}),
+				controllers.SetFilePermission,
+			)
+			// Clear file permissions
+			file.DELETE("permission",
+				middleware.RequiredScopes(types.ScopeFilesWrite),
+				controllers.FromJSON[explorer.ClearPermissionService](explorer.ClearPermissionParamCtx{}),
+				controllers.ClearFilePermission,
+			)
 			// Upload related
 			upload := file.Group("upload", middleware.RequiredScopes(types.ScopeFilesWrite))
 			{
@@ -867,6 +885,12 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 			//	middleware.CheckShareUnlocked(),
 			//	controllers.ReportShare,
 			//)
+		}
+
+		// 用户组列表（用于设置权限、协同分享受众等）
+		group := v4.Group("group")
+		{
+			group.GET("list", controllers.GroupList)
 		}
 
 		// 需要登录保护的
@@ -1290,6 +1314,8 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 					)
 					// 获得二步验证初始化信息
 					setting.GET("2fa", controllers.UserInit2FA)
+					// 获取可选存储策略
+					setting.GET("policies", controllers.UserPolicies)
 				}
 			}
 

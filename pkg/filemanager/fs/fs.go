@@ -169,6 +169,7 @@ type (
 		Capabilities() *boolset.BooleanSet
 		IsRootFolder() bool
 		View() *types.ExplorerView
+		Permission() string
 	}
 
 	Entities []Entity
@@ -189,12 +190,14 @@ type (
 	}
 
 	FileExtendedInfo struct {
-		StoragePolicy         *ent.StoragePolicy
-		StorageUsed           int64
-		Shares                []*ent.Share
-		EntityStoragePolicies map[int]*ent.StoragePolicy
-		View                  *types.ExplorerView
-		DirectLinks           []*ent.DirectLink
+		StoragePolicy          *ent.StoragePolicy
+		StoragePolicyInherited bool
+		StorageUsed            int64
+		Shares                 []*ent.Share
+		EntityStoragePolicies  map[int]*ent.StoragePolicy
+		View                   *types.ExplorerView
+		DirectLinks            []*ent.DirectLink
+		Permissions            *types.PermissionSettingReq
 	}
 
 	FolderSummary struct {

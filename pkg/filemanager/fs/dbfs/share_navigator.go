@@ -56,6 +56,7 @@ type (
 		ownerRoot       *File
 		share           *ent.Share
 		owner           *ent.User
+		evaluatedPerm   string
 		disableRecycle  bool
 		persist         func()
 	}
@@ -66,6 +67,7 @@ type (
 		SingleFileShare bool
 		Share           *ent.Share
 		Owner           *ent.User
+		EvaluatedPerm   string
 	}
 )
 
@@ -78,6 +80,7 @@ func (n *shareNavigator) PersistState(kv cache.Driver, key string) {
 			SingleFileShare: n.singleFileShare,
 			Share:           n.share,
 			Owner:           n.owner,
+			EvaluatedPerm:   n.evaluatedPerm,
 		}, ContextHintTTL)
 	}
 }
@@ -90,6 +93,7 @@ func (n *shareNavigator) RestoreState(s State) error {
 		n.singleFileShare = state.SingleFileShare
 		n.share = state.Share
 		n.owner = state.Owner
+		n.evaluatedPerm = state.EvaluatedPerm
 		return nil
 	}
 
@@ -175,6 +179,14 @@ func (n *shareNavigator) Root(ctx context.Context, path *fs.URI) (*File, error) 
 	n.ownerRoot = ownerRoot
 	n.ownerRoot.Path[pathIndexRoot] = newMyIDUri(hashid.EncodeUserID(n.hasher, n.owner.ID))
 	n.share = share
+
+	var permSetting *types.PermissionSettingReq
+	if share.Props != nil {
+		permSetting = share.Props.Permissions
+	}
+	n.evaluatedPerm = EvaluateSharePermission(permSetting, n.user, n.owner, n.hasher)
+	n.shareRoot.PermissionStr = n.evaluatedPerm
+
 	return n.shareRoot, nil
 }
 
@@ -223,6 +235,10 @@ func (n *shareNavigator) walkNext(ctx context.Context, root *File, next string, 
 		return nil, err
 	}
 
+	if nextFile != nil {
+		nextFile.PermissionStr = n.evaluatedPerm
+	}
+
 	return nextFile, nil
 }
 
@@ -233,6 +249,7 @@ func (n *shareNavigator) Children(ctx context.Context, parent *File, args *ListA
 			return nil, err
 		}
 
+		file.PermissionStr = n.evaluatedPerm
 		return &ListResult{
 			Files:          []*File{file},
 			Pagination:     &inventory.PaginationResults{},
@@ -240,7 +257,14 @@ func (n *shareNavigator) Children(ctx context.Context, parent *File, args *ListA
 		}, nil
 	}
 
-	return n.baseNavigator.children(ctx, parent, args)
+	res, err := n.baseNavigator.children(ctx, parent, args)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range res.Files {
+		f.PermissionStr = n.evaluatedPerm
+	}
+	return res, nil
 }
 
 func (n *shareNavigator) latestSharedSingleFile(ctx context.Context) (*File, error) {
@@ -252,11 +276,27 @@ func (n *shareNavigator) latestSharedSingleFile(ctx context.Context) (*File, err
 
 		f := newFile(n.shareRoot, file)
 		f.OwnerModel = n.shareRoot.OwnerModel
+		f.PermissionStr = n.evaluatedPerm
 
 		return f, nil
 	}
 
 	return nil, fs.ErrPathNotExist
+}
+
+func (n *shareNavigator) HasPermission(perm types.FilePermission) bool {
+	if n.evaluatedPerm == "" {
+		return false
+	}
+	bs, err := boolset.FromString(n.evaluatedPerm)
+	if err != nil || bs == nil {
+		return false
+	}
+	return bs.Enabled(int(perm))
+}
+
+func (n *shareNavigator) EvaluatedPerm() string {
+	return n.evaluatedPerm
 }
 
 func (n *shareNavigator) Capabilities(isSearching bool) *fs.NavigatorProps {

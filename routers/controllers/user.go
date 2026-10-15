@@ -7,6 +7,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
+	"github.com/cloudreve/Cloudreve/v4/service/explorer"
 	"github.com/cloudreve/Cloudreve/v4/service/share"
 	"github.com/cloudreve/Cloudreve/v4/service/user"
 	"github.com/gin-gonic/gin"
@@ -389,3 +390,33 @@ func ListPublicShare(c *gin.Context) {
 		})
 	}
 }
+
+// UserPolicies lists available storage policies for the current user
+func UserPolicies(c *gin.Context) {
+	service := &explorer.UserPolicyService{}
+	resp, err := service.List(c)
+	if err != nil {
+		c.JSON(200, serializer.Err(c, err))
+		c.Abort()
+		return
+	}
+
+	c.JSON(200, serializer.Response{
+		Data: resp,
+	})
+}
+
+// GroupList lists all groups for audience search / permissions
+func GroupList(c *gin.Context) {
+	service := &user.GroupListService{}
+	res, err := service.List(c)
+	if err != nil {
+		c.JSON(200, serializer.Err(c, err))
+		c.Abort()
+		return
+	}
+
+	c.JSON(200, serializer.Response{Data: res})
+}
+
+
