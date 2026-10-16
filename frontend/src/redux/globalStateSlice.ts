@@ -199,6 +199,10 @@ export interface GlobalStateSlice {
   createArchiveDialogOpen?: boolean;
   createArchiveDialogFiles?: FileResponse[];
 
+  // Relocate dialog
+  relocateDialogOpen?: boolean;
+  relocateDialogFiles?: FileResponse[];
+
   // Extract archive dialog
   extractArchiveDialogOpen?: boolean;
   extractArchiveDialogFile?: FileResponse;
@@ -457,6 +461,19 @@ export const globalStateSlice = createSlice({
     },
     closeCreateArchiveDialog: (state) => {
       state.createArchiveDialogOpen = false;
+    },
+    setRelocateDialog: (
+      state,
+      action: PayloadAction<{
+        open: boolean;
+        files: FileResponse[];
+      }>,
+    ) => {
+      state.relocateDialogOpen = action.payload.open;
+      state.relocateDialogFiles = action.payload.files;
+    },
+    closeRelocateDialog: (state) => {
+      state.relocateDialogOpen = false;
     },
     setBatchDownloadLogDialog: (
       state,
@@ -961,4 +978,6 @@ export const {
   clearOAuthApp,
   setDesktopMountSetupDialog,
   closeDesktopMountSetupDialog,
+  setRelocateDialog,
+  closeRelocateDialog,
 } = globalStateSlice.actions;

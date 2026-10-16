@@ -481,3 +481,60 @@ func (service *RebuildFTSIndexWorkflowService) CreateRebuildFTSIndexTask(c *gin.
 
 	return BuildTaskResponse(t, nil, hasher), nil
 }
+
+type (
+	RelocateWorkflowService struct {
+		Src         []string `json:"src" binding:"required,min=1"`
+		DstPolicyID string   `json:"dst_policy_id" binding:"required"`
+	}
+	CreateRelocateParamCtx struct{}
+)
+
+func (service *RelocateWorkflowService) CreateRelocateTask(c *gin.Context) (*TaskResponse, error) {
+	dep := dependency.FromContext(c)
+	user := inventory.UserFromContext(c)
+	hasher := dep.HashIDEncoder()
+	m := manager.NewFileManager(dep, user)
+	defer m.Recycle()
+
+	isAdmin := user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin))
+	canRelocate := user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionRelocate))
+	if !isAdmin && !canRelocate {
+		return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Group not allowed to relocate storage policy", nil)
+	}
+
+	dstPolicyID, err := hasher.Decode(service.DstPolicyID, hashid.PolicyID)
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodeParamErr, "Invalid destination policy id", err)
+	}
+
+	if !isAdmin {
+		allowed := false
+		for _, id := range user.Edges.Group.Settings.StoragePolicies {
+			if id == dstPolicyID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, serializer.NewError(serializer.CodePolicyNotAllowed, "Storage policy not allowed", nil)
+		}
+	}
+
+	_, err = dep.StoragePolicyClient().GetPolicyByID(c, dstPolicyID)
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodePolicyNotAllowed, "Storage policy not found", err)
+	}
+
+	t, err := workflows.NewRelocateTask(c, user, service.Src, dstPolicyID)
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodeCreateTaskError, "Failed to create task", err)
+	}
+
+	if err := dep.IoIntenseQueue(c).QueueTask(c, t); err != nil {
+		return nil, serializer.NewError(serializer.CodeCreateTaskError, "Failed to queue task", err)
+	}
+
+	return BuildTaskResponse(t, nil, hasher), nil
+}
+

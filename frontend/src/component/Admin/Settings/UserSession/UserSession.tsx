@@ -139,12 +139,19 @@ const UserSession = () => {
                 </NoMarginHelperText>
               </FormControl>
             </SettingForm>
-            <SettingForm title={t("vas.filterEmailProvider")} lgWidth={5} pro>
+            <SettingForm title={t("vas.filterEmailProvider")} lgWidth={5}>
               <FormControl>
-                <DenseSelect value={0}>
+                <DenseSelect
+                  value={values.filter_email_provider ?? "0"}
+                  onChange={(e) =>
+                    setSettings({
+                      filter_email_provider: e.target.value as string,
+                    })
+                  }
+                >
                   {["filterEmailProviderDisabled", "filterEmailProviderWhitelist", "filterEmailProviderBlacklist"].map(
                     (v, i) => (
-                      <SquareMenuItem value={i.toString()}>
+                      <SquareMenuItem key={i} value={i.toString()}>
                         <ListItemText
                           slotProps={{
                             primary: { variant: "body2" },
@@ -159,16 +166,35 @@ const UserSession = () => {
                 <NoMarginHelperText>{t("vas.filterEmailProviderDes")}</NoMarginHelperText>
               </FormControl>
             </SettingForm>
-            <SettingForm lgWidth={5} pro>
+            {values.filter_email_provider && values.filter_email_provider !== "0" && (
+              <SettingForm title={t("vas.filterEmailProviderRule")} lgWidth={5}>
+                <FormControl>
+                  <DenseFilledTextField
+                    value={values.filter_email_provider_rule ?? ""}
+                    onChange={(e) =>
+                      setSettings({
+                        filter_email_provider_rule: e.target.value,
+                      })
+                    }
+                  />
+                  <NoMarginHelperText>{t("vas.filterEmailProviderRuleDes")}</NoMarginHelperText>
+                </FormControl>
+              </SettingForm>
+            )}
+            <SettingForm lgWidth={5}>
               <FormControl fullWidth>
                 <FormControlLabel
-                  control={<Switch checked={false} />}
-                  label={
-                    <>
-                      {t("vas.disableSubAddressEmail")}
-                      <ProChip label="Pro" color="primary" size="small" />
-                    </>
+                  control={
+                    <Switch
+                      checked={isTrueVal(values.disable_sub_address_email)}
+                      onChange={(e) =>
+                        setSettings({
+                          disable_sub_address_email: e.target.checked ? "1" : "0",
+                        })
+                      }
+                    />
                   }
+                  label={t("vas.disableSubAddressEmail")}
                 />
                 <NoMarginHelperText>
                   <Trans i18nKey="vas.disableSubAddressEmailDes" ns={"dashboard"} components={[<Code />]} />

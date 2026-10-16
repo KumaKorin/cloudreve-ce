@@ -266,7 +266,7 @@ const (
 	GroupPermissionShareDownload
 	GroupPermission_CommunityPlaceholder1
 	GroupPermissionRemoteDownload
-	GroupPermission_CommunityPlaceholder2
+	GroupPermissionRelocate
 	GroupPermissionRedirectedSource // not used
 	GroupPermissionAdvanceDelete
 	GroupPermission_CommunityPlaceholder3
@@ -274,6 +274,10 @@ const (
 	GroupPermissionSetExplicitUser_placeholder
 	GroupPermissionIgnoreFileOwnership // not used
 	GroupPermissionUniqueRedirectDirectLink
+)
+
+const (
+	GroupPermission_CommunityPlaceholder2 = GroupPermissionRelocate
 )
 
 const (

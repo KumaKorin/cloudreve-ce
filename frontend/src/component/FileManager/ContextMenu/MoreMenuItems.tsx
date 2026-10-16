@@ -7,10 +7,12 @@ import {
   setDirectLinkManagementDialog,
   setManageShareDialog,
   setPermissionDialog,
+  setRelocateDialog,
   setVersionControlDialog,
 } from "../../../redux/globalStateSlice.ts";
 import { useAppDispatch } from "../../../redux/hooks.ts";
 import { resetThumbnails } from "../../../redux/thunks/file.ts";
+import StorageOutlined from "@mui/icons-material/StorageOutlined";
 import Archive from "../../Icons/Archive.tsx";
 import BranchForkLink from "../../Icons/BranchForkLink.tsx";
 import HistoryOutlined from "../../Icons/HistoryOutlined.tsx";
@@ -124,6 +126,23 @@ const MoreMenuItems = ({ displayOpt, targets }: SubMenuItemsProps) => {
             <Archive fontSize="small" />
           </ListItemIcon>
           <ListItemText>{t("application:fileManager.createArchive")}</ListItemText>
+        </CascadingMenuItem>
+      )}
+      {displayOpt.showRelocate && (
+        <CascadingMenuItem
+          onClick={onClick(() =>
+            dispatch(
+              setRelocateDialog({
+                open: true,
+                files: targets,
+              }),
+            ),
+          )}
+        >
+          <ListItemIcon>
+            <StorageOutlined fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>{t("dashboard:task.relocate")}</ListItemText>
         </CascadingMenuItem>
       )}
       {displayOpt.showResetThumb && (

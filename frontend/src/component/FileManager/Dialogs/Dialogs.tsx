@@ -29,6 +29,7 @@ import { useAppSelector } from "../../../redux/hooks.ts";
 import CreateArchive from "./CreateArchive.tsx";
 import ExtractArchive from "./ExtractArchive.tsx";
 import CreateRemoteDownload from "./CreateRemoteDownload.tsx";
+import Relocate from "./Relocate.tsx";
 import AdvanceSearch from "../Search/AdvanceSearch/AdvanceSearch.tsx";
 import React from "react";
 import ColumnSetting from "../Explorer/ListView/ColumnSetting.tsx";
@@ -39,6 +40,7 @@ const Dialogs = () => {
   const showCreateArchive = useAppSelector((state) => state.globalState.createArchiveDialogOpen);
   const showExtractArchive = useAppSelector((state) => state.globalState.extractArchiveDialogOpen);
   const showRemoteDownload = useAppSelector((state) => state.globalState.remoteDownloadDialogOpen);
+  const showRelocate = useAppSelector((state) => state.globalState.relocateDialogOpen);
   const showAdvancedSearch = useAppSelector((state) => state.globalState.advanceSearchOpen);
   const showListViewColumnSetting = useAppSelector((state) => state.globalState.listViewColumnSettingDialogOpen);
   const directLink = useAppSelector((state) => state.globalState.directLinkDialogOpen);
@@ -76,6 +78,7 @@ const Dialogs = () => {
       {showCreateArchive != undefined && <CreateArchive />}
       {showExtractArchive != undefined && <ExtractArchive />}
       {showRemoteDownload != undefined && <CreateRemoteDownload />}
+      {showRelocate != undefined && <Relocate />}
       {showAdvancedSearch != undefined && <AdvanceSearch />}
       {showListViewColumnSetting != undefined && <ColumnSetting />}
       {directLink != undefined && <DirectLinks />}

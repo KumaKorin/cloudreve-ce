@@ -191,6 +191,9 @@ const Settings = () => {
                     "avatar_size",
                     "avatar_size_l",
                     "gravatar_server",
+                    "filter_email_provider",
+                    "filter_email_provider_rule",
+                    "disable_sub_address_email",
                   ]}
                 >
                   <UserSession />
