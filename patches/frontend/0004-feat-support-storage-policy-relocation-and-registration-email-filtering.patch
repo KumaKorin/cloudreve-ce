@@ -1,0 +1,480 @@
+From 7ce349700bbe41aa1463be17cac9819b01d39252 Mon Sep 17 00:00:00 2001
+From: KumaKorin <me@korin.im>
+Date: Fri, 16 Oct 2026 16:08:36 +0800
+Subject: [PATCH] feat: support storage policy relocation and registration
+ email filtering
+
+---
+ src/api/api.ts                                |  18 +++
+ .../Group/EditGroup/FileManagementSection.tsx |  24 ++-
+ src/component/Admin/Settings/Settings.tsx     |   3 +
+ .../Settings/UserSession/UserSession.tsx      |  46 ++++--
+ .../FileManager/ContextMenu/MoreMenuItems.tsx |  19 +++
+ src/component/FileManager/Dialogs/Dialogs.tsx |   3 +
+ .../FileManager/Dialogs/Relocate.tsx          | 140 ++++++++++++++++++
+ .../Pages/Tasks/TaskSummaryTitle.tsx          |  26 ++++
+ src/redux/globalStateSlice.ts                 |  19 +++
+ 9 files changed, 281 insertions(+), 17 deletions(-)
+ create mode 100644 frontend/src/component/FileManager/Dialogs/Relocate.tsx
+
+diff --git a/src/api/api.ts b/src/api/api.ts
+index 5619c3f..b6f33cd 100644
+--- a/src/api/api.ts
++++ b/src/api/api.ts
+@@ -111,6 +111,7 @@ import {
+   ImportWorkflowService,
+   ListTaskService,
+   RebuildFTSIndexWorkflowService,
++  RelocateWorkflowService,
+   SetDownloadFilesService,
+   TaskListResponse,
+   TaskProgresses,
+@@ -860,6 +861,23 @@ export function sendExtractArchive(req: ArchiveWorkflowService): ThunkResponse<T
+   };
+ }
+ 
++export function sendRelocate(req: RelocateWorkflowService): ThunkResponse<TaskResponse> {
++  return async (dispatch, _getState) => {
++    return await dispatch(
++      send(
++        "/workflow/relocate",
++        {
++          data: req,
++          method: "POST",
++        },
++        {
++          ...defaultOpts,
++        },
++      ),
++    );
++  };
++}
++
+ export function getTasks(req: ListTaskService): ThunkResponse<TaskListResponse> {
+   return async (dispatch, _getState) => {
+     return await dispatch(
+diff --git a/src/component/Admin/Group/EditGroup/FileManagementSection.tsx b/src/component/Admin/Group/EditGroup/FileManagementSection.tsx
+index d0a5574..b3a964c 100644
+--- a/src/component/Admin/Group/EditGroup/FileManagementSection.tsx
++++ b/src/component/Admin/Group/EditGroup/FileManagementSection.tsx
+@@ -75,6 +75,16 @@ const FileManagementSection = () => {
+     [setGroup],
+   );
+ 
++  const onAllowRelocateChange = useCallback(
++    (e: React.ChangeEvent<HTMLInputElement>) => {
++      setGroup((p: GroupEnt) => ({
++        ...p,
++        permissions: new Boolset(p.permissions).set(GroupPermission.relocate, e.target.checked).toString(),
++      }));
++    },
++    [setGroup],
++  );
++
+   const onCompressSizeChange = useCallback(
+     (e: number) => {
+       setGroup((p: GroupEnt) => ({ ...p, settings: { ...p.settings, compress_size: e ? e : undefined } }));
+@@ -196,15 +206,15 @@ const FileManagementSection = () => {
+               </SettingForm>
+             </Collapse>
+             <SettingForm lgWidth={5}>
+-              <FormControl fullWidth onClick={onProClick}>
++              <FormControl fullWidth>
+                 <FormControlLabel
+-                  control={<Switch checked={false} />}
+-                  label={
+-                    <Box sx={{ display: "flex", alignItems: "center" }}>
+-                      {t("group.migratePolicy")}
+-                      <ProChip size="small" label="Pro" />
+-                    </Box>
++                  control={
++                    <Switch
++                      checked={permission.enabled(GroupPermission.relocate)}
++                      onChange={onAllowRelocateChange}
++                    />
+                   }
++                  label={t("group.migratePolicy")}
+                 />
+                 <NoMarginHelperText>{t("group.migratePolicyDes")}</NoMarginHelperText>
+               </FormControl>
+diff --git a/src/component/Admin/Settings/Settings.tsx b/src/component/Admin/Settings/Settings.tsx
+index e95bfb5..1950807 100644
+--- a/src/component/Admin/Settings/Settings.tsx
++++ b/src/component/Admin/Settings/Settings.tsx
+@@ -191,6 +191,9 @@ const Settings = () => {
+                     "avatar_size",
+                     "avatar_size_l",
+                     "gravatar_server",
++                    "filter_email_provider",
++                    "filter_email_provider_rule",
++                    "disable_sub_address_email",
+                   ]}
+                 >
+                   <UserSession />
+diff --git a/src/component/Admin/Settings/UserSession/UserSession.tsx b/src/component/Admin/Settings/UserSession/UserSession.tsx
+index bb264cc..1d1adb8 100644
+--- a/src/component/Admin/Settings/UserSession/UserSession.tsx
++++ b/src/component/Admin/Settings/UserSession/UserSession.tsx
+@@ -139,12 +139,19 @@ const UserSession = () => {
+                 </NoMarginHelperText>
+               </FormControl>
+             </SettingForm>
+-            <SettingForm title={t("vas.filterEmailProvider")} lgWidth={5} pro>
++            <SettingForm title={t("vas.filterEmailProvider")} lgWidth={5}>
+               <FormControl>
+-                <DenseSelect value={0}>
++                <DenseSelect
++                  value={values.filter_email_provider ?? "0"}
++                  onChange={(e) =>
++                    setSettings({
++                      filter_email_provider: e.target.value as string,
++                    })
++                  }
++                >
+                   {["filterEmailProviderDisabled", "filterEmailProviderWhitelist", "filterEmailProviderBlacklist"].map(
+                     (v, i) => (
+-                      <SquareMenuItem value={i.toString()}>
++                      <SquareMenuItem key={i} value={i.toString()}>
+                         <ListItemText
+                           slotProps={{
+                             primary: { variant: "body2" },
+@@ -159,16 +166,35 @@ const UserSession = () => {
+                 <NoMarginHelperText>{t("vas.filterEmailProviderDes")}</NoMarginHelperText>
+               </FormControl>
+             </SettingForm>
+-            <SettingForm lgWidth={5} pro>
++            {values.filter_email_provider && values.filter_email_provider !== "0" && (
++              <SettingForm title={t("vas.filterEmailProviderRule")} lgWidth={5}>
++                <FormControl>
++                  <DenseFilledTextField
++                    value={values.filter_email_provider_rule ?? ""}
++                    onChange={(e) =>
++                      setSettings({
++                        filter_email_provider_rule: e.target.value,
++                      })
++                    }
++                  />
++                  <NoMarginHelperText>{t("vas.filterEmailProviderRuleDes")}</NoMarginHelperText>
++                </FormControl>
++              </SettingForm>
++            )}
++            <SettingForm lgWidth={5}>
+               <FormControl fullWidth>
+                 <FormControlLabel
+-                  control={<Switch checked={false} />}
+-                  label={
+-                    <>
+-                      {t("vas.disableSubAddressEmail")}
+-                      <ProChip label="Pro" color="primary" size="small" />
+-                    </>
++                  control={
++                    <Switch
++                      checked={isTrueVal(values.disable_sub_address_email)}
++                      onChange={(e) =>
++                        setSettings({
++                          disable_sub_address_email: e.target.checked ? "1" : "0",
++                        })
++                      }
++                    />
+                   }
++                  label={t("vas.disableSubAddressEmail")}
+                 />
+                 <NoMarginHelperText>
+                   <Trans i18nKey="vas.disableSubAddressEmailDes" ns={"dashboard"} components={[<Code />]} />
+diff --git a/src/component/FileManager/ContextMenu/MoreMenuItems.tsx b/src/component/FileManager/ContextMenu/MoreMenuItems.tsx
+index 80be571..0d95533 100644
+--- a/src/component/FileManager/ContextMenu/MoreMenuItems.tsx
++++ b/src/component/FileManager/ContextMenu/MoreMenuItems.tsx
+@@ -7,10 +7,12 @@ import {
+   setDirectLinkManagementDialog,
+   setManageShareDialog,
+   setPermissionDialog,
++  setRelocateDialog,
+   setVersionControlDialog,
+ } from "../../../redux/globalStateSlice.ts";
+ import { useAppDispatch } from "../../../redux/hooks.ts";
+ import { resetThumbnails } from "../../../redux/thunks/file.ts";
++import StorageOutlined from "@mui/icons-material/StorageOutlined";
+ import Archive from "../../Icons/Archive.tsx";
+ import BranchForkLink from "../../Icons/BranchForkLink.tsx";
+ import HistoryOutlined from "../../Icons/HistoryOutlined.tsx";
+@@ -126,6 +128,23 @@ const MoreMenuItems = ({ displayOpt, targets }: SubMenuItemsProps) => {
+           <ListItemText>{t("application:fileManager.createArchive")}</ListItemText>
+         </CascadingMenuItem>
+       )}
++      {displayOpt.showRelocate && (
++        <CascadingMenuItem
++          onClick={onClick(() =>
++            dispatch(
++              setRelocateDialog({
++                open: true,
++                files: targets,
++              }),
++            ),
++          )}
++        >
++          <ListItemIcon>
++            <StorageOutlined fontSize="small" />
++          </ListItemIcon>
++          <ListItemText>{t("dashboard:task.relocate")}</ListItemText>
++        </CascadingMenuItem>
++      )}
+       {displayOpt.showResetThumb && (
+         <CascadingMenuItem onClick={onClick(() => dispatch(resetThumbnails(targets)))}>
+           <ListItemIcon>
+diff --git a/src/component/FileManager/Dialogs/Dialogs.tsx b/src/component/FileManager/Dialogs/Dialogs.tsx
+index 9e4b50e..61ca7a4 100644
+--- a/src/component/FileManager/Dialogs/Dialogs.tsx
++++ b/src/component/FileManager/Dialogs/Dialogs.tsx
+@@ -29,6 +29,7 @@ import { useAppSelector } from "../../../redux/hooks.ts";
+ import CreateArchive from "./CreateArchive.tsx";
+ import ExtractArchive from "./ExtractArchive.tsx";
+ import CreateRemoteDownload from "./CreateRemoteDownload.tsx";
++import Relocate from "./Relocate.tsx";
+ import AdvanceSearch from "../Search/AdvanceSearch/AdvanceSearch.tsx";
+ import React from "react";
+ import ColumnSetting from "../Explorer/ListView/ColumnSetting.tsx";
+@@ -39,6 +40,7 @@ const Dialogs = () => {
+   const showCreateArchive = useAppSelector((state) => state.globalState.createArchiveDialogOpen);
+   const showExtractArchive = useAppSelector((state) => state.globalState.extractArchiveDialogOpen);
+   const showRemoteDownload = useAppSelector((state) => state.globalState.remoteDownloadDialogOpen);
++  const showRelocate = useAppSelector((state) => state.globalState.relocateDialogOpen);
+   const showAdvancedSearch = useAppSelector((state) => state.globalState.advanceSearchOpen);
+   const showListViewColumnSetting = useAppSelector((state) => state.globalState.listViewColumnSettingDialogOpen);
+   const directLink = useAppSelector((state) => state.globalState.directLinkDialogOpen);
+@@ -76,6 +78,7 @@ const Dialogs = () => {
+       {showCreateArchive != undefined && <CreateArchive />}
+       {showExtractArchive != undefined && <ExtractArchive />}
+       {showRemoteDownload != undefined && <CreateRemoteDownload />}
++      {showRelocate != undefined && <Relocate />}
+       {showAdvancedSearch != undefined && <AdvanceSearch />}
+       {showListViewColumnSetting != undefined && <ColumnSetting />}
+       {directLink != undefined && <DirectLinks />}
+diff --git a/src/component/FileManager/Dialogs/Relocate.tsx b/src/component/FileManager/Dialogs/Relocate.tsx
+new file mode 100644
+index 0000000..66ee21a
+--- /dev/null
++++ b/src/component/FileManager/Dialogs/Relocate.tsx
+@@ -0,0 +1,140 @@
++import {
++  Box,
++  Chip,
++  DialogContent,
++  FormControl,
++  InputLabel,
++  MenuItem,
++  Select,
++  Stack,
++  Typography,
++} from "@mui/material";
++import { useSnackbar } from "notistack";
++import { useCallback, useEffect, useState } from "react";
++import { useTranslation } from "react-i18next";
++import { sendRelocate } from "../../../api/api.ts";
++import { closeRelocateDialog } from "../../../redux/globalStateSlice.ts";
++import { useAppDispatch, useAppSelector } from "../../../redux/hooks.ts";
++import { refreshPolicyOptions } from "../../../redux/thunks/settings.ts";
++import SessionManager from "../../../session";
++import { getFileLinkedUri } from "../../../util";
++import { ViewTaskAction } from "../../Common/Snackbar/snackbar.tsx";
++import DraggableDialog from "../../Dialogs/DraggableDialog.tsx";
++import FileBadge from "../FileBadge.tsx";
++
++const Relocate = () => {
++  const { t } = useTranslation();
++  const dispatch = useAppDispatch();
++  const { enqueueSnackbar } = useSnackbar();
++
++  const [loading, setLoading] = useState(false);
++  const [selectedPolicy, setSelectedPolicy] = useState("");
++
++  const open = useAppSelector((state) => state.globalState.relocateDialogOpen);
++  const targets = useAppSelector((state) => state.globalState.relocateDialogFiles);
++  const policyOptions = useAppSelector((state) => state.globalState.policyOptionCache);
++  const isLogin = !!SessionManager.currentLoginOrNull();
++
++  useEffect(() => {
++    if (open && !policyOptions && isLogin) {
++      dispatch(refreshPolicyOptions());
++    }
++  }, [open, policyOptions, isLogin, dispatch]);
++
++  useEffect(() => {
++    if (open && policyOptions && policyOptions.length > 0 && !selectedPolicy) {
++      setSelectedPolicy(policyOptions[0].id);
++    }
++  }, [open, policyOptions, selectedPolicy]);
++
++  const onClose = useCallback(() => {
++    dispatch(closeRelocateDialog());
++  }, [dispatch]);
++
++  const onAccept = useCallback(() => {
++    if (!targets || targets.length === 0 || !selectedPolicy) {
++      return;
++    }
++
++    setLoading(true);
++    dispatch(
++      sendRelocate({
++        src: targets.map((file) => getFileLinkedUri(file)),
++        dst_policy_id: selectedPolicy,
++      }),
++    )
++      .then(() => {
++        dispatch(closeRelocateDialog());
++        enqueueSnackbar({
++          message: t("application:modals.taskCreated"),
++          variant: "success",
++          action: ViewTaskAction(),
++        });
++      })
++      .finally(() => {
++        setLoading(false);
++      });
++  }, [targets, selectedPolicy, dispatch, enqueueSnackbar, t]);
++
++  return (
++    <DraggableDialog
++      title={t("dashboard:task.relocate")}
++      showActions
++      loading={loading}
++      showCancel
++      disabled={!selectedPolicy || !targets || targets.length === 0}
++      onAccept={onAccept}
++      dialogProps={{
++        open: open ?? false,
++        onClose: onClose,
++        fullWidth: true,
++        maxWidth: "sm",
++        disableRestoreFocus: true,
++      }}
++    >
++      <DialogContent sx={{ pt: 1 }}>
++        <Stack spacing={3}>
++          {targets && targets.length > 0 && (
++            <Box>
++              <Typography variant="body2" color="text.secondary" gutterBottom>
++                {t("application:fileManager.selectedFiles", {
++                  defaultValue: "所选项目",
++                })}
++              </Typography>
++              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, maxHeight: 120, overflowY: "auto", py: 0.5 }}>
++                {targets.slice(0, 5).map((file) => (
++                  <FileBadge key={file.id} file={file} clickable={false} />
++                ))}
++                {targets.length > 5 && (
++                  <Chip
++                    label={`+${targets.length - 5}`}
++                    size="small"
++                    variant="outlined"
++                    sx={{ alignSelf: "center" }}
++                  />
++                )}
++              </Box>
++            </Box>
++          )}
++          <FormControl fullWidth variant="outlined">
++            <InputLabel id="relocate-policy-label">{t("application:uploader.storagePolicy")}</InputLabel>
++            <Select
++              labelId="relocate-policy-label"
++              label={t("application:uploader.storagePolicy")}
++              value={selectedPolicy}
++              onChange={(e) => setSelectedPolicy(e.target.value as string)}
++            >
++              {policyOptions?.map((p) => (
++                <MenuItem key={p.id} value={p.id}>
++                  {p.name} ({p.type})
++                </MenuItem>
++              ))}
++            </Select>
++          </FormControl>
++        </Stack>
++      </DialogContent>
++    </DraggableDialog>
++  );
++};
++
++export default Relocate;
+diff --git a/src/component/Pages/Tasks/TaskSummaryTitle.tsx b/src/component/Pages/Tasks/TaskSummaryTitle.tsx
+index cf02651..6413f61 100644
+--- a/src/component/Pages/Tasks/TaskSummaryTitle.tsx
++++ b/src/component/Pages/Tasks/TaskSummaryTitle.tsx
+@@ -108,6 +108,32 @@ const TaskSummaryTitle = ({ type, summary, isInDashboard = false }: TaskSummaryT
+           ]}
+         />
+       );
++    case TaskType.relocate:
++      return (
++        <Trans
++          i18nKey="setting.relocateFileTo"
++          values={{
++            policy: policyOption
++              ? policyOption.find((p) => p.id == summary?.props.dst_policy_id)?.name ?? "Unknown"
++              : "",
++            more: (summary?.props.src_multiple?.length ?? 0) > 3 ? "..." : "",
++          }}
++          components={[
++            <span key={0}>
++              {summary?.props.src_multiple?.slice(0, 3).map((src) => (
++                <StyledFileBadge
++                  key={src}
++                  variant={"outlined"}
++                  simplifiedFile={{
++                    type: FileType.file,
++                    path: src,
++                  }}
++                />
++              ))}
++            </span>,
++          ]}
++        />
++      );
+     case TaskType.full_text_rebuild:
+       return (
+         <Typography variant={"inherit"}>
+diff --git a/src/redux/globalStateSlice.ts b/src/redux/globalStateSlice.ts
+index 0bb74d0..43257cb 100644
+--- a/src/redux/globalStateSlice.ts
++++ b/src/redux/globalStateSlice.ts
+@@ -199,6 +199,10 @@ export interface GlobalStateSlice {
+   createArchiveDialogOpen?: boolean;
+   createArchiveDialogFiles?: FileResponse[];
+ 
++  // Relocate dialog
++  relocateDialogOpen?: boolean;
++  relocateDialogFiles?: FileResponse[];
++
+   // Extract archive dialog
+   extractArchiveDialogOpen?: boolean;
+   extractArchiveDialogFile?: FileResponse;
+@@ -458,6 +462,19 @@ export const globalStateSlice = createSlice({
+     closeCreateArchiveDialog: (state) => {
+       state.createArchiveDialogOpen = false;
+     },
++    setRelocateDialog: (
++      state,
++      action: PayloadAction<{
++        open: boolean;
++        files: FileResponse[];
++      }>,
++    ) => {
++      state.relocateDialogOpen = action.payload.open;
++      state.relocateDialogFiles = action.payload.files;
++    },
++    closeRelocateDialog: (state) => {
++      state.relocateDialogOpen = false;
++    },
+     setBatchDownloadLogDialog: (
+       state,
+       action: PayloadAction<{
+@@ -961,4 +978,6 @@ export const {
+   clearOAuthApp,
+   setDesktopMountSetupDialog,
+   closeDesktopMountSetupDialog,
++  setRelocateDialog,
++  closeRelocateDialog,
+ } = globalStateSlice.actions;
+-- 
+2.51.2.windows.1
+

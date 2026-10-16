@@ -1,0 +1,665 @@
+From 7ce349700bbe41aa1463be17cac9819b01d39252 Mon Sep 17 00:00:00 2001
+From: KumaKorin <me@korin.im>
+Date: Fri, 16 Oct 2026 16:08:36 +0800
+Subject: [PATCH] feat: support storage policy relocation and registration
+ email filtering
+
+---
+ inventory/setting.go                  |   3 +
+ inventory/types/types.go              |   6 +-
+ pkg/filemanager/fs/dbfs/dbfs.go       |   8 +-
+ pkg/filemanager/fs/dbfs/navigator.go  |   2 +
+ pkg/filemanager/workflows/relocate.go | 357 ++++++++++++++++++++++++++
+ pkg/setting/provider.go               |  18 ++
+ routers/controllers/file.go           |  17 ++
+ routers/router.go                     |   6 +
+ service/explorer/workflows.go         |  57 ++++
+ service/user/register.go              |  36 ++-
+ 10 files changed, 506 insertions(+), 4 deletions(-)
+ create mode 100644 pkg/filemanager/workflows/relocate.go
+
+diff --git a/inventory/setting.go b/inventory/setting.go
+index 78ce9de..811ed8c 100644
+--- a/inventory/setting.go
++++ b/inventory/setting.go
+@@ -497,6 +497,9 @@ var DefaultSettings = map[string]string{
+ 	"pwa_theme_color":                            "#000000",
+ 	"pwa_background_color":                       "#ffffff",
+ 	"register_enabled":                           `1`,
++	"filter_email_provider":                      "0",
++	"filter_email_provider_rule":                 "",
++	"disable_sub_address_email":                  "0",
+ 	"default_group":                              `2`,
+ 	"fromName":                                   `Cloudreve`,
+ 	"mail_keepalive":                             `30`,
+diff --git a/inventory/types/types.go b/inventory/types/types.go
+index 584574f..cd60ff8 100644
+--- a/inventory/types/types.go
++++ b/inventory/types/types.go
+@@ -266,7 +266,7 @@ const (
+ 	GroupPermissionShareDownload
+ 	GroupPermission_CommunityPlaceholder1
+ 	GroupPermissionRemoteDownload
+-	GroupPermission_CommunityPlaceholder2
++	GroupPermissionRelocate
+ 	GroupPermissionRedirectedSource // not used
+ 	GroupPermissionAdvanceDelete
+ 	GroupPermission_CommunityPlaceholder3
+@@ -276,6 +276,10 @@ const (
+ 	GroupPermissionUniqueRedirectDirectLink
+ )
+ 
++const (
++	GroupPermission_CommunityPlaceholder2 = GroupPermissionRelocate
++)
++
+ const (
+ 	NodeCapabilityNone NodeCapability = iota
+ 	NodeCapabilityCreateArchive
+diff --git a/pkg/filemanager/fs/dbfs/dbfs.go b/pkg/filemanager/fs/dbfs/dbfs.go
+index e25d3fd..135b615 100644
+--- a/pkg/filemanager/fs/dbfs/dbfs.go
++++ b/pkg/filemanager/fs/dbfs/dbfs.go
+@@ -810,8 +810,8 @@ func (f *DBFS) navigatorId(path *fs.URI) string {
+ 	}
+ }
+ 
+-// generateSavePath generates the physical save path for the upload request.
+-func generateSavePath(policy *ent.StoragePolicy, req *fs.UploadRequest, user *ent.User) string {
++// GenerateSavePath generates the physical save path for the upload request.
++func GenerateSavePath(policy *ent.StoragePolicy, req *fs.UploadRequest, user *ent.User) string {
+ 	currentTime := time.Now()
+ 	dynamicReplace := func(rule string, pathAvailable bool) string {
+ 		return util.ReplaceMagicVar(rule, fs.Separator, pathAvailable, false, currentTime, user.ID, req.Props.Uri.Name(), req.Props.Uri.Dir(), "")
+@@ -827,6 +827,10 @@ func generateSavePath(policy *ent.StoragePolicy, req *fs.UploadRequest, user *en
+ 	return path.Join(path.Clean(dirRule), nameRule)
+ }
+ 
++func generateSavePath(policy *ent.StoragePolicy, req *fs.UploadRequest, user *ent.User) string {
++	return GenerateSavePath(policy, req, user)
++}
++
+ func canMoveOrCopyTo(src, dst *fs.URI, isCopy bool) bool {
+ 	if isCopy {
+ 		if src.FileSystem() == dst.FileSystem() && src.FileSystem() == constants.FileSystemMy {
+diff --git a/pkg/filemanager/fs/dbfs/navigator.go b/pkg/filemanager/fs/dbfs/navigator.go
+index 421c49f..c944f9a 100644
+--- a/pkg/filemanager/fs/dbfs/navigator.go
++++ b/pkg/filemanager/fs/dbfs/navigator.go
+@@ -139,6 +139,7 @@ func init() {
+ 		NavigatorCapabilityInfo:           true,
+ 		NavigatorCapabilityVersionControl: true,
+ 		NavigatorCapabilityMount:          true, // Mount storage policy
++		NavigatorCapabilityRelocate:       true,
+ 		NavigatorCapabilityEnterFolder:    true,
+ 		NavigatorCapabilityModifyProps:    true,
+ 	}, myNavigatorCapability)
+@@ -160,6 +161,7 @@ func init() {
+ 		NavigatorCapabilityMoveToShare:    true,
+ 		NavigatorCapabilityCopyToShare:    true,
+ 		NavigatorCapabilityMount:          true,
++		NavigatorCapabilityRelocate:       true,
+ 	}, shareNavigatorCapability)
+ 	boolset.Sets(map[NavigatorCapability]bool{
+ 		NavigatorCapabilityListChildren: true,
+diff --git a/pkg/filemanager/workflows/relocate.go b/pkg/filemanager/workflows/relocate.go
+new file mode 100644
+index 0000000..d0e4455
+--- /dev/null
++++ b/pkg/filemanager/workflows/relocate.go
+@@ -0,0 +1,357 @@
++package workflows
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"sync/atomic"
++
++	"github.com/cloudreve/Cloudreve/v4/application/dependency"
++	"github.com/cloudreve/Cloudreve/v4/ent"
++	"github.com/cloudreve/Cloudreve/v4/ent/task"
++	"github.com/cloudreve/Cloudreve/v4/inventory"
++	"github.com/cloudreve/Cloudreve/v4/inventory/types"
++	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
++	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs/dbfs"
++	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager"
++	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
++	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
++	"github.com/cloudreve/Cloudreve/v4/pkg/queue"
++	"golang.org/x/tools/container/intsets"
++)
++
++type (
++	RelocateTask struct {
++		*queue.DBTask
++
++		l        logging.Logger
++		state    *RelocateTaskState
++		progress queue.Progresses
++	}
++	RelocateTaskPhase string
++	RelocateTaskState struct {
++		Uris         []string          `json:"uris"`
++		DstPolicyID  int               `json:"dst_policy_id"`
++		Phase        RelocateTaskPhase `json:"phase"`
++		Entities     []int             `json:"entities,omitempty"`
++		EntityUris   map[int]string    `json:"entity_uris,omitempty"`
++		Folders      []int             `json:"folders,omitempty"`
++		CurrentIndex int               `json:"current_index,omitempty"`
++		Failed       int               `json:"failed,omitempty"`
++	}
++)
++
++const (
++	RelocateTaskPhaseIndexing RelocateTaskPhase = ""
++	RelocateTaskPhaseTransfer RelocateTaskPhase = "transfer"
++	RelocateTaskPhaseFinish   RelocateTaskPhase = "finish"
++)
++
++func init() {
++	queue.RegisterResumableTaskFactory(queue.RelocateTaskType, NewRelocateTaskFromModel)
++}
++
++func NewRelocateTask(ctx context.Context, u *ent.User, uris []string, dstPolicyID int) (queue.Task, error) {
++	state := &RelocateTaskState{
++		Uris:        uris,
++		DstPolicyID: dstPolicyID,
++		Phase:       RelocateTaskPhaseIndexing,
++		EntityUris:  make(map[int]string),
++	}
++	stateBytes, err := json.Marshal(state)
++	if err != nil {
++		return nil, fmt.Errorf("failed to marshal state: %w", err)
++	}
++
++	return &RelocateTask{
++		DBTask: &queue.DBTask{
++			Task: &ent.Task{
++				Type:          queue.RelocateTaskType,
++				CorrelationID: logging.CorrelationID(ctx),
++				PrivateState:  string(stateBytes),
++				PublicState:   &types.TaskPublicState{},
++			},
++			DirectOwner: u,
++		},
++	}, nil
++}
++
++func NewRelocateTaskFromModel(t *ent.Task) queue.Task {
++	return &RelocateTask{
++		DBTask: &queue.DBTask{
++			Task: t,
++		},
++	}
++}
++
++func (m *RelocateTask) Do(ctx context.Context) (task.Status, error) {
++	dep := dependency.FromContext(ctx)
++	m.l = dep.Logger()
++
++	m.Lock()
++	if m.progress == nil {
++		m.progress = make(queue.Progresses)
++	}
++	m.Unlock()
++
++	state := &RelocateTaskState{}
++	if err := json.Unmarshal([]byte(m.State()), state); err != nil {
++		return task.StatusError, fmt.Errorf("failed to unmarshal state: %w", err)
++	}
++	if state.EntityUris == nil {
++		state.EntityUris = make(map[int]string)
++	}
++	m.state = state
++
++	var (
++		next task.Status
++		err  error
++	)
++	switch m.state.Phase {
++	case RelocateTaskPhaseIndexing:
++		next, err = m.indexing(ctx, dep)
++	case RelocateTaskPhaseTransfer:
++		next, err = m.transfer(ctx, dep)
++	case RelocateTaskPhaseFinish:
++		next, err = m.finish(ctx, dep)
++	default:
++		return task.StatusError, fmt.Errorf("unknown relocate phase: %s", m.state.Phase)
++	}
++
++	newStateStr, marshalErr := json.Marshal(m.state)
++	if marshalErr != nil {
++		return task.StatusError, fmt.Errorf("failed to marshal state: %w", marshalErr)
++	}
++
++	m.Lock()
++	m.Task.PrivateState = string(newStateStr)
++	m.Unlock()
++
++	return next, err
++}
++
++func (m *RelocateTask) indexing(ctx context.Context, dep dependency.Dep) (task.Status, error) {
++	user := inventory.UserFromContext(ctx)
++	fm := manager.NewFileManager(dep, user)
++	defer fm.Recycle()
++
++	entitySet := make(map[int]bool)
++	var entities []int
++	var folders []int
++
++	for _, uriStr := range m.state.Uris {
++		uri, err := fs.NewUriFromString(uriStr)
++		if err != nil {
++			m.l.Warning("Failed to parse uri %q: %s, skipping", uriStr, err)
++			continue
++		}
++
++		file, err := fm.Get(ctx, uri, dbfs.WithFileEntities())
++		if err != nil {
++			m.l.Warning("Failed to get file %s: %s, skipping", uri, err)
++			continue
++		}
++
++		if file.Type() == types.FileTypeFile {
++			for _, e := range file.Entities() {
++				if e.PolicyID() != m.state.DstPolicyID && !entitySet[e.ID()] {
++					entitySet[e.ID()] = true
++					entities = append(entities, e.ID())
++					m.state.EntityUris[e.ID()] = uriStr
++				}
++			}
++		} else if file.Type() == types.FileTypeFolder {
++			folders = append(folders, file.ID())
++			err = fm.Walk(ctx, uri, intsets.MaxInt, func(f fs.File, level int) error {
++				if f.Type() == types.FileTypeFolder {
++					folders = append(folders, f.ID())
++				} else if f.Type() == types.FileTypeFile {
++					for _, e := range f.Entities() {
++						if e.PolicyID() != m.state.DstPolicyID && !entitySet[e.ID()] {
++							entitySet[e.ID()] = true
++							entities = append(entities, e.ID())
++							m.state.EntityUris[e.ID()] = f.Uri(false).String()
++						}
++					}
++				}
++				return nil
++			}, dbfs.WithFileEntities())
++			if err != nil {
++				m.l.Warning("Failed to walk folder %s: %s", uri, err)
++			}
++		}
++	}
++
++	m.state.Entities = entities
++	m.state.Folders = folders
++	m.state.CurrentIndex = 0
++	m.state.Phase = RelocateTaskPhaseTransfer
++
++	m.Lock()
++	m.progress[ProgressTypeRelocateTransferCount] = &queue.Progress{
++		Total:   int64(len(entities)),
++		Current: 0,
++	}
++	m.Unlock()
++
++	m.ResumeAfter(0)
++	return task.StatusSuspending, nil
++}
++
++func (m *RelocateTask) transfer(ctx context.Context, dep dependency.Dep) (task.Status, error) {
++	totalEntities := len(m.state.Entities)
++	if totalEntities == 0 || m.state.CurrentIndex >= totalEntities {
++		m.state.Phase = RelocateTaskPhaseFinish
++		m.ResumeAfter(0)
++		return task.StatusSuspending, nil
++	}
++
++	user := inventory.UserFromContext(ctx)
++	fm := manager.NewFileManager(dep, user)
++	defer fm.Recycle()
++
++	dstPolicy, err := dep.StoragePolicyClient().GetPolicyByID(ctx, m.state.DstPolicyID)
++	if err != nil {
++		return task.StatusError, fmt.Errorf("failed to get destination storage policy [%d]: %w", m.state.DstPolicyID, err)
++	}
++
++	dstDriver, err := fm.GetStorageDriver(ctx, dstPolicy)
++	if err != nil {
++		return task.StatusError, fmt.Errorf("failed to get driver for destination policy [%d]: %w", m.state.DstPolicyID, err)
++	}
++
++	m.Lock()
++	if m.progress[ProgressTypeRelocateTransferCount] == nil {
++		m.progress[ProgressTypeRelocateTransferCount] = &queue.Progress{
++			Total:   int64(totalEntities),
++			Current: int64(m.state.CurrentIndex),
++		}
++	}
++	m.Unlock()
++
++	for m.state.CurrentIndex < totalEntities {
++		entityID := m.state.Entities[m.state.CurrentIndex]
++
++		entModel, err := dep.FileClient().GetEntityByID(ctx, entityID)
++		if err != nil {
++			m.l.Warning("Failed to get entity [%d]: %s, skipping", entityID, err)
++			m.state.Failed++
++			m.state.CurrentIndex++
++			atomic.AddInt64(&m.progress[ProgressTypeRelocateTransferCount].Current, 1)
++			continue
++		}
++
++		if entModel.StoragePolicyEntities == m.state.DstPolicyID {
++			m.state.CurrentIndex++
++			atomic.AddInt64(&m.progress[ProgressTypeRelocateTransferCount].Current, 1)
++			continue
++		}
++
++		oldSourcePath := entModel.Source
++		oldPolicyID := entModel.StoragePolicyEntities
++
++		source, err := fm.GetEntitySource(ctx, entityID)
++		if err != nil {
++			m.l.Warning("Failed to get entity source [%d]: %s, skipping", entityID, err)
++			m.state.Failed++
++			m.state.CurrentIndex++
++			atomic.AddInt64(&m.progress[ProgressTypeRelocateTransferCount].Current, 1)
++			continue
++		}
++
++		uriStr := m.state.EntityUris[entityID]
++		fileUri, err := fs.NewUriFromString(uriStr)
++		if err != nil {
++			fileUri, _ = fs.NewUriFromString("my://")
++		}
++
++		uploadReq := &fs.UploadRequest{
++			File:   source,
++			Seeker: source,
++			Props: &fs.UploadProps{
++				Uri:      fileUri,
++				Size:     entModel.Size,
++				MimeType: dep.MimeDetector(ctx).TypeByName(fileUri.Name()),
++			},
++		}
++
++		newSavePath := dbfs.GenerateSavePath(dstPolicy, uploadReq, user)
++		uploadReq.Props.SavePath = newSavePath
++
++		err = dstDriver.Put(ctx, uploadReq)
++		_ = source.Close()
++		if err != nil {
++			m.l.Error("Failed to put entity [%d] to new destination: %s", entityID, err)
++			m.state.Failed++
++			m.state.CurrentIndex++
++			atomic.AddInt64(&m.progress[ProgressTypeRelocateTransferCount].Current, 1)
++			continue
++		}
++
++		_, err = dep.DBClient().Entity.UpdateOneID(entityID).
++			SetStoragePolicyEntities(m.state.DstPolicyID).
++			SetSource(newSavePath).
++			Save(ctx)
++		if err != nil {
++			m.l.Error("Failed to update entity [%d] in database: %s", entityID, err)
++			m.state.Failed++
++			_, _ = dstDriver.Delete(ctx, newSavePath)
++			m.state.CurrentIndex++
++			atomic.AddInt64(&m.progress[ProgressTypeRelocateTransferCount].Current, 1)
++			continue
++		}
++
++		// Delete old physical object
++		oldPolicy, err := dep.StoragePolicyClient().GetPolicyByID(ctx, oldPolicyID)
++		if err == nil {
++			oldDriver, err := fm.GetStorageDriver(ctx, oldPolicy)
++			if err == nil {
++				_, _ = oldDriver.Delete(ctx, oldSourcePath)
++			}
++		}
++
++		m.state.CurrentIndex++
++		atomic.AddInt64(&m.progress[ProgressTypeRelocateTransferCount].Current, 1)
++	}
++
++	m.state.Phase = RelocateTaskPhaseFinish
++	m.ResumeAfter(0)
++	return task.StatusSuspending, nil
++}
++
++func (m *RelocateTask) finish(ctx context.Context, dep dependency.Dep) (task.Status, error) {
++	for _, folderID := range m.state.Folders {
++		_, err := dep.DBClient().File.UpdateOneID(folderID).
++			SetStoragePolicyFiles(m.state.DstPolicyID).
++			Save(ctx)
++		if err != nil {
++			m.l.Warning("Failed to update folder [%d] storage policy: %s", folderID, err)
++		}
++	}
++
++	return task.StatusCompleted, nil
++}
++
++func (m *RelocateTask) Progress(ctx context.Context) queue.Progresses {
++	m.Lock()
++	defer m.Unlock()
++	return m.progress
++}
++
++func (m *RelocateTask) Summarize(hasher hashid.Encoder) *queue.Summary {
++	if m.state == nil {
++		if err := json.Unmarshal([]byte(m.State()), &m.state); err != nil {
++			return nil
++		}
++	}
++
++	return &queue.Summary{
++		Phase: string(m.state.Phase),
++		Props: map[string]any{
++			SummaryKeySrcMultiple:    m.state.Uris,
++			SummaryKeySrcDstPolicyID: hashid.EncodePolicyID(hasher, m.state.DstPolicyID),
++			SummaryKeyFailed:         m.state.Failed,
++			SummaryKeyTotal:          len(m.state.Entities),
++		},
++	}
++}
+diff --git a/pkg/setting/provider.go b/pkg/setting/provider.go
+index 5fb80a5..edc59f2 100644
+--- a/pkg/setting/provider.go
++++ b/pkg/setting/provider.go
+@@ -239,6 +239,12 @@ type (
+ 		// ExposeUserEmail returns true if user email should be exposed to other
+ 		// signed-in users in redacted responses.
+ 		ExposeUserEmail(ctx context.Context) bool
++		// FilterEmailProvider returns the email filter mode (0: disabled, 1: whitelist, 2: blacklist).
++		FilterEmailProvider(ctx context.Context) int
++		// FilterEmailProviderRule returns the list of allowed or blocked email domains.
++		FilterEmailProviderRule(ctx context.Context) []string
++		// DisableSubAddressEmail returns true if sub-address email (+ address) is disabled.
++		DisableSubAddressEmail(ctx context.Context) bool
+ 	}
+ 	UseFirstSiteUrlCtxKey = struct{}
+ )
+@@ -863,6 +869,18 @@ func (s *settingProvider) RegisterEnabled(ctx context.Context) bool {
+ 	return s.getBoolean(ctx, "register_enabled", false)
+ }
+ 
++func (s *settingProvider) FilterEmailProvider(ctx context.Context) int {
++	return s.getInt(ctx, "filter_email_provider", 0)
++}
++
++func (s *settingProvider) FilterEmailProviderRule(ctx context.Context) []string {
++	return s.getStringList(ctx, "filter_email_provider_rule", []string{})
++}
++
++func (s *settingProvider) DisableSubAddressEmail(ctx context.Context) bool {
++	return s.getBoolean(ctx, "disable_sub_address_email", false)
++}
++
+ func (s *settingProvider) ExposeUserEmail(ctx context.Context) bool {
+ 	return s.getBoolean(ctx, "expose_user_email", true)
+ }
+diff --git a/routers/controllers/file.go b/routers/controllers/file.go
+index a8697c6..af97186 100644
+--- a/routers/controllers/file.go
++++ b/routers/controllers/file.go
+@@ -34,6 +34,23 @@ func CreateArchive(c *gin.Context) {
+ 	}
+ }
+ 
++// CreateRelocate 创建存储策略转移任务
++func CreateRelocate(c *gin.Context) {
++	service := ParametersFromContext[*explorer.RelocateWorkflowService](c, explorer.CreateRelocateParamCtx{})
++	resp, err := service.CreateRelocateTask(c)
++	if err != nil {
++		c.JSON(200, serializer.Err(c, err))
++		c.Abort()
++		return
++	}
++
++	if resp != nil {
++		c.JSON(200, serializer.Response{
++			Data: resp,
++		})
++	}
++}
++
+ // ImportFiles imports files
+ func ImportFiles(c *gin.Context) {
+ 	service := ParametersFromContext[*explorer.ImportWorkflowService](c, explorer.CreateImportParamCtx{})
+diff --git a/routers/router.go b/routers/router.go
+index bdc1581..8baaf2a 100644
+--- a/routers/router.go
++++ b/routers/router.go
+@@ -577,6 +577,12 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
+ 				controllers.FromJSON[explorer.ArchiveWorkflowService](explorer.CreateArchiveParamCtx{}),
+ 				controllers.ExtractArchive,
+ 			)
++			// Create task to relocate storage policy
++			wf.POST("relocate",
++				middleware.RequiredScopes(types.ScopeWorkflowWrite),
++				controllers.FromJSON[explorer.RelocateWorkflowService](explorer.CreateRelocateParamCtx{}),
++				controllers.CreateRelocate,
++			)
+ 
+ 			remoteDownload := wf.Group("download")
+ 			{
+diff --git a/service/explorer/workflows.go b/service/explorer/workflows.go
+index 8bef8c9..71998ef 100644
+--- a/service/explorer/workflows.go
++++ b/service/explorer/workflows.go
+@@ -481,3 +481,60 @@ func (service *RebuildFTSIndexWorkflowService) CreateRebuildFTSIndexTask(c *gin.
+ 
+ 	return BuildTaskResponse(t, nil, hasher), nil
+ }
++
++type (
++	RelocateWorkflowService struct {
++		Src         []string `json:"src" binding:"required,min=1"`
++		DstPolicyID string   `json:"dst_policy_id" binding:"required"`
++	}
++	CreateRelocateParamCtx struct{}
++)
++
++func (service *RelocateWorkflowService) CreateRelocateTask(c *gin.Context) (*TaskResponse, error) {
++	dep := dependency.FromContext(c)
++	user := inventory.UserFromContext(c)
++	hasher := dep.HashIDEncoder()
++	m := manager.NewFileManager(dep, user)
++	defer m.Recycle()
++
++	isAdmin := user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin))
++	canRelocate := user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionRelocate))
++	if !isAdmin && !canRelocate {
++		return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Group not allowed to relocate storage policy", nil)
++	}
++
++	dstPolicyID, err := hasher.Decode(service.DstPolicyID, hashid.PolicyID)
++	if err != nil {
++		return nil, serializer.NewError(serializer.CodeParamErr, "Invalid destination policy id", err)
++	}
++
++	if !isAdmin {
++		allowed := false
++		for _, id := range user.Edges.Group.Settings.StoragePolicies {
++			if id == dstPolicyID {
++				allowed = true
++				break
++			}
++		}
++		if !allowed {
++			return nil, serializer.NewError(serializer.CodePolicyNotAllowed, "Storage policy not allowed", nil)
++		}
++	}
++
++	_, err = dep.StoragePolicyClient().GetPolicyByID(c, dstPolicyID)
++	if err != nil {
++		return nil, serializer.NewError(serializer.CodePolicyNotAllowed, "Storage policy not found", err)
++	}
++
++	t, err := workflows.NewRelocateTask(c, user, service.Src, dstPolicyID)
++	if err != nil {
++		return nil, serializer.NewError(serializer.CodeCreateTaskError, "Failed to create task", err)
++	}
++
++	if err := dep.IoIntenseQueue(c).QueueTask(c, t); err != nil {
++		return nil, serializer.NewError(serializer.CodeCreateTaskError, "Failed to queue task", err)
++	}
++
++	return BuildTaskResponse(t, nil, hasher), nil
++}
++
+diff --git a/service/user/register.go b/service/user/register.go
+index 0273549..ee601c5 100644
+--- a/service/user/register.go
++++ b/service/user/register.go
+@@ -34,9 +34,43 @@ func (service *UserRegisterService) Register(c *gin.Context) serializer.Response
+ 	dep := dependency.FromContext(c)
+ 	settings := dep.SettingProvider()
+ 
++	email := strings.ToLower(service.UserName)
++	parts := strings.Split(email, "@")
++	if len(parts) != 2 {
++		return serializer.ParamErr(c, "Invalid email address", nil)
++	}
++
++	if settings.DisableSubAddressEmail(c) && strings.Contains(parts[0], "+") {
++		return serializer.ErrWithDetails(c, serializer.CodeEmailProviderBaned, "Sub-address email is not allowed", nil)
++	}
++
++	filterMode := settings.FilterEmailProvider(c)
++	if filterMode != 0 {
++		domain := parts[1]
++		rules := settings.FilterEmailProviderRule(c)
++		matched := false
++		for _, rule := range rules {
++			rule = strings.TrimSpace(strings.ToLower(rule))
++			if rule == "" {
++				continue
++			}
++			rule = strings.TrimPrefix(rule, "@")
++			if domain == rule || strings.HasSuffix(domain, "."+rule) {
++				matched = true
++				break
++			}
++		}
++		if filterMode == 1 && !matched {
++			return serializer.ErrWithDetails(c, serializer.CodeEmailProviderBaned, "Email provider not in whitelist", nil)
++		}
++		if filterMode == 2 && matched {
++			return serializer.ErrWithDetails(c, serializer.CodeEmailProviderBaned, "Email provider is in blacklist", nil)
++		}
++	}
++
+ 	isEmailRequired := settings.EmailActivationEnabled(c)
+ 	args := &inventory.NewUserArgs{
+-		Email:         strings.ToLower(service.UserName),
++		Email:         email,
+ 		PlainPassword: service.Password,
+ 		Status:        user.StatusActive,
+ 		GroupID:       settings.DefaultGroup(c),
+-- 
+2.51.2.windows.1
+
