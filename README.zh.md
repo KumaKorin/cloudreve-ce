@@ -45,7 +45,26 @@
   - `POST /api/v4/file/permission`：新增或更新文件/目录权限规则。
   - `DELETE /api/v4/file/permission`：删除指定权限规则。
 
-### 3. 管理后台标识规范化
+### 3. 在存储策略之间转移文件（Storage Policy Relocation）
+- **跨策略灵活转存**：用户可将已有文件或整个文件夹的存储策略直接转移至其他可用且启用的存储策略。
+- **异步后台安全转移**：
+  - 支持后台异步任务（Task）流式转存，文件实体自动从源驱动流式转存至目标存储驱动，并清理旧存储源对象。
+  - 批量更新数据库实体映射与目录挂载属性，保障大文件与深层目录迁移的完整性与一致性。
+  - 前端任务中心实时显示转存进度、涉及文件及目标策略徽标。
+- **用户组权限控制**：在后台管理面板用户组设置中解除限制，提供“存储策略转移”权限开关（`GroupPermission.relocate`），可按用户组灵活授权。
+- **后端工作流接口**：
+  - `POST /api/v4/workflow/relocate`：创建跨存储策略转移工作流任务。
+
+### 4. 注册邮箱过滤与二级地址防护（Registration Email Filtering）
+- **服务商域名过滤**：支持通过白名单（Whitelist）或黑名单（Blacklist）过滤指定的邮箱服务商域名，支持泛域名匹配与多行规则配置。
+- **二级地址（子地址）防护**：支持禁止使用包含 `+` 的二级地址邮箱（例如 `user+alias@domain.com`）注册，杜绝多账号滥用。
+- **管理后台自由配置**：在后台管理面板“会话控制”中无缝集成配置项，支持动态切换过滤模式、编辑规则及开启子地址拦截。
+
+### 5. 用户组存储策略权限平等鉴权与能力恢复
+- **权限与用户组统一**：彻底移除管理员对存储策略的越权绕过，确保所有用户组（包括管理员组）的可用存储策略严格按照用户组绑定的策略权限进行鉴权，杜绝误用未授权策略。
+- **文件管理基础能力恢复**：全面恢复移动（Move）、复制（Copy）及细粒度权限配置能力。
+
+### 6. 管理后台标识规范化
 - 后台管理面板首页右上角的版本标识统一采用 **`CE`**（Community Edition 社区开源版缩写），清晰表明社区二次开发性质，杜绝与官方商业版混淆。
 
 ---
@@ -78,13 +97,22 @@ Cloudreve_CE
 
 ## 编译与打包指南
 
-### 方式一：直接使用 Release 编译包
+### 方式一：直接使用自动化脚本编译（推荐）
 
-前往 Releases 页面下载预编译好的独立单文件运行即可：
-- Windows: `Cloudreve.exe`
-- Linux: `cloudreve`
+仓库已内置跨平台一键编译脚本，会自动构建前端静态文件、打包嵌入 `assets.zip` 并编译生成最终二进制：
+- **Windows (PowerShell)**:
+  ```powershell
+  .\build.ps1
+  ```
+  产物将生成在根目录下 `Cloudreve.exe`。
+- **Linux / macOS (Bash)**:
+  ```bash
+  chmod +x build.sh
+  ./build.sh
+  ```
+  产物将生成在根目录下 `cloudreve`。
 
-### 方式二：使用 Git 补丁打入官方源码（推荐）
+### 方式二：使用 Git 补丁打入官方源码
 
 如果你已有 Cloudreve 官方开源仓库，可通过本仓库提供的 `patches` 目录无缝打入：
 
@@ -98,13 +126,20 @@ cd /path/to/Cloudreve/frontend
 git am /path/to/patches/frontend/*.patch
 ```
 
-### 方式三：从本源码从头编译
+| 补丁编号 | 对应功能模块 | 说明 |
+| :--- | :--- | :--- |
+| `0001` | 存储策略挂载 & 细粒度协同分享 (ACL) | 支持目录独立存储策略绑定，细粒度权限控制与访客写入放行 |
+| `0002` | 管理后台标识规范化 | 管理后台右上角版本标识统一显示为 `CE` |
+| `0003` | 用户组存储策略平等鉴权 & 能力恢复 | 消除管理员越权，统一用户组存储策略鉴权；恢复移动、复制、权限管理能力 |
+| `0004` | 存储策略间文件转移 & 注册邮箱过滤 | 支持跨存储策略异步迁移文件/目录；支持注册邮箱黑白名单过滤与二级地址禁用 |
+
+### 方式三：分步骤手动编译
 
 #### 1. 编译前端静态资源
 ```bash
 cd frontend
 pnpm install
-npx vite build
+pnpm build
 ```
 产物将输出至 `frontend/build`。
 
@@ -112,18 +147,16 @@ npx vite build
 ```bash
 go run pack_assets.go
 ```
-该脚本会将静态资源自动压缩生成 `backend/application/statics/assets.zip`。
+该脚本会将静态资源自动压缩生成 `application/statics/assets.zip`。
 
 #### 3. 编译后端可执行程序
 - **Windows (amd64)**:
-  ```bash
-  cd backend
-  go build -o Cloudreve.exe
+  ```powershell
+  go build -trimpath -ldflags="-s -w" -o Cloudreve.exe
   ```
 - **Linux (amd64)**:
   ```bash
-  cd backend
-  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o cloudreve
+  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o cloudreve
   ```
 
 ---
