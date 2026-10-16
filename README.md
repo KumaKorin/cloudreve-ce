@@ -45,7 +45,26 @@
   - `POST /api/v4/file/permission`: Creates or updates ACL permission rules.
   - `DELETE /api/v4/file/permission`: Deletes specific ACL rules.
 
-### 3. Admin Dashboard Label Standardization
+### 3. Storage Policy Relocation Across Policies
+- **Cross-Policy File Transfer**: Users can directly relocate existing files or entire folder trees from one storage policy to another enabled storage policy.
+- **Asynchronous & Reliable Workflow**:
+  - Leverages background async task pipeline to stream file entities from the source storage driver to the destination storage driver, automatically cleaning up old physical entities.
+  - Atomically updates database entity associations and directory policy relationships, ensuring data consistency for large files and deeply nested folders.
+  - Real-time progress monitoring, file badges, and target policy display in the Task Center.
+- **Group Permission Management**: Unlocked "Storage Policy Relocation" in Admin Dashboard group settings (`GroupPermission.relocate`), allowing granular permission toggling per user group.
+- **Backend Workflow API**:
+  - `POST /api/v4/workflow/relocate`: Initiates a cross-policy relocation task.
+
+### 4. Registration Email Filtering & Sub-address Protection
+- **Email Provider Domain Filtering**: Filter allowed registration domains via either Whitelist or Blacklist mode, supporting wildcard domain matching and multiline rules.
+- **Sub-address Email Protection**: Option to reject email addresses with `+` sub-addresses (e.g., `user+tag@domain.com`) to prevent multi-account registration abuse.
+- **Admin Dashboard Integration**: Full configuration UI unlocked under Admin Dashboard -> Session Settings, allowing effortless rule management and mode selection.
+
+### 5. Group Storage Policy Equal Authorization & Core Capabilities
+- **Equal Policy Enforcement**: Storage policy authorization strictly follows user group permissions for all users (including administrators), eliminating privileged bypasses.
+- **File Management Capabilities Restored**: Fully restored Move, Copy, and granular permission management actions in the file navigator.
+
+### 6. Admin Dashboard Label Standardization
 - The version badge at the top-right corner of the Admin Dashboard is standardized as **`CE`** (abbreviation for Community Edition), clearly indicating its community secondary-development nature to prevent any confusion with the official commercial Pro edition.
 
 ---
@@ -79,13 +98,22 @@ Cloudreve_CE
 
 ## Build & Deployment Guide
 
-### Option 1: Use Pre-compiled Release Binaries
+### Option 1: One-Click Automated Scripts (Recommended)
 
-Download pre-compiled standalone single binaries directly from the Releases page:
-- Windows: `Cloudreve.exe`
-- Linux: `cloudreve`
+The repository provides automated cross-platform build scripts that build frontend assets, pack them into `assets.zip`, and compile the final binary:
+- **Windows (PowerShell)**:
+  ```powershell
+  .\build.ps1
+  ```
+  Binary generated at `./Cloudreve.exe`.
+- **Linux / macOS (Bash)**:
+  ```bash
+  chmod +x build.sh
+  ./build.sh
+  ```
+  Binary generated at `./cloudreve`.
 
-### Option 2: Apply Git Patches to Upstream Official Repositories (Recommended)
+### Option 2: Apply Git Patches to Upstream Official Repositories
 
 If you already have cloned the official Cloudreve repositories, you can apply our patch sets cleanly:
 
@@ -99,13 +127,20 @@ cd /path/to/Cloudreve/frontend
 git am /path/to/patches/frontend/*.patch
 ```
 
-### Option 3: Build from Source
+| Patch Index | Affected Area | Description |
+| :--- | :--- | :--- |
+| `0001` | Storage Policy Mount & Granular ACL Sharing | Per-folder policy mounting, granular sharing ACLs, and collaborator write bypass |
+| `0002` | Admin Dashboard Badge Standardization | Standardize admin dashboard top-right badge to `CE` |
+| `0003` | Group Policy Equal Authorization & Core Actions | Equal policy authorization for all groups; restore Move, Copy, and Permission capabilities |
+| `0004` | Storage Policy Relocation & Email Filtering | Asynchronous file/directory cross-policy transfer; email provider whitelist/blacklist and sub-address protection |
+
+### Option 3: Step-by-Step Manual Build
 
 #### 1. Build Frontend Static Assets
 ```bash
 cd frontend
 pnpm install
-npx vite build
+pnpm build
 ```
 Build output will be generated in `frontend/build`.
 
@@ -113,18 +148,16 @@ Build output will be generated in `frontend/build`.
 ```bash
 go run pack_assets.go
 ```
-This utility packs `frontend/build` into `backend/application/statics/assets.zip`.
+This utility packs `frontend/build` into `application/statics/assets.zip`.
 
 #### 3. Compile Backend Executable
 - **Windows (amd64)**:
-  ```bash
-  cd backend
-  go build -o Cloudreve.exe
+  ```powershell
+  go build -trimpath -ldflags="-s -w" -o Cloudreve.exe
   ```
 - **Linux (amd64)**:
   ```bash
-  cd backend
-  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o cloudreve
+  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o cloudreve
   ```
 
 ---
