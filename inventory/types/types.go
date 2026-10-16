@@ -28,7 +28,8 @@ type (
 
 	// GroupSetting 用户组其他配置
 	GroupSetting struct {
-		CompressSize          int64                  `json:"compress_size,omitempty"` // 可压缩大小
+		StoragePolicies       []int                  `json:"storage_policies,omitempty"` // 允许使用的存储策略ID列表
+		CompressSize          int64                  `json:"compress_size,omitempty"`    // 可压缩大小
 		DecompressSize        int64                  `json:"decompress_size,omitempty"`
 		RemoteDownloadOptions map[string]interface{} `json:"remote_download_options,omitempty"` // 离线下载用户组配置
 		SourceBatchSize       int                    `json:"source_batch,omitempty"`

@@ -63,6 +63,10 @@ func (service *CreateUploadSessionService) Create(c context.Context) (*UploadSes
 		if err != nil {
 			return nil, serializer.NewError(serializer.CodeParamErr, "unknown policy id", err)
 		}
+		allowedIDs := GetAllowedPolicyIDsForUser(user)
+		if !allowedIDs[policyId] {
+			return nil, serializer.NewError(serializer.CodeNoPermissionErr, "group not authorized to use this storage policy", nil)
+		}
 	}
 
 	uploadRequest := &fs.UploadRequest{

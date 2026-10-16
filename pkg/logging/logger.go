@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -131,6 +132,7 @@ func (ll *consoleLogger) Debug(format string, v ...any) {
 func (ll *consoleLogger) println(level string, msg string) {
 	c := color.New()
 	_, filename, line, _ := runtime.Caller(3)
+	filename = strings.TrimPrefix(filename, "github.com/cloudreve/Cloudreve/v4/")
 
 	_, _ = c.Printf(
 		"%s\t %s [%s:%d]%s %s\n",

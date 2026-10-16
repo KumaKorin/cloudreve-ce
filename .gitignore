@@ -37,6 +37,13 @@ data/
 tmp/
 .devcontainer/
 cloudreve
-.DS_Store
 cloudreve*
 Cloudreve.exe
+
+# Frontend build artifacts
+pnpm-lock.yaml
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+frontend/.pnpm-store/
+
