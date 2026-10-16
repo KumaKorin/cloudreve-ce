@@ -1,0 +1,441 @@
+From c94ab7c6c75b7ed1043665a1140c321d6b214dd1 Mon Sep 17 00:00:00 2001
+From: KumaKorin <me@korin.im>
+Date: Fri, 16 Oct 2026 14:56:08 +0800
+Subject: [PATCH] feat: support group storage policies, fix share settings, and
+ restore move and copy capabilities
+
+---
+ package.json                                  |  2 +-
+ src/api/dashboard.ts                          |  3 +-
+ .../Group/EditGroup/BasicInfoSection.tsx      | 31 +++++++++++++----
+ .../Group/EditGroup/GroupSettingWrapper.tsx   | 18 ++++++++--
+ .../Group/EditGroup/PolicySelectionInput.tsx  | 23 ++++++++-----
+ src/component/Admin/Group/GroupRow.tsx        | 34 +++++++++++++------
+ src/component/Admin/Group/GroupSetting.tsx    | 19 +++++++++--
+ src/component/Admin/Group/NewGroupDIalog.tsx  |  1 +
+ .../ContextMenu/useActionDisplayOpt.ts        | 17 ++++++----
+ .../Dialogs/Share/ShareSetting.tsx            |  6 ++--
+ src/redux/siteConfigSlice.ts                  |  4 +++
+ src/util/permission.ts                        |  6 +++-
+ 12 files changed, 121 insertions(+), 43 deletions(-)
+
+diff --git a/package.json b/package.json
+index 3713dc5..d0214aa 100644
+--- a/package.json
++++ b/package.json
+@@ -1,5 +1,5 @@
+ {
+-  "name": "cloudreve-frontend-pro",
++  "name": "cloudreve-frontend",
+   "private": true,
+   "version": "4.19.1",
+   "type": "module",
+diff --git a/src/api/dashboard.ts b/src/api/dashboard.ts
+index e90303e..35892bd 100644
+--- a/src/api/dashboard.ts
++++ b/src/api/dashboard.ts
+@@ -46,13 +46,14 @@ export interface GroupEnt extends CommonMixin {
+   speed_limit?: number;
+   permissions?: string;
+   edges: {
+-    storage_policies?: StoragePolicy;
++    storage_policies?: StoragePolicy | StoragePolicy[];
+   };
+   total_users?: number;
+   settings?: GroupSetting;
+ }
+ 
+ export interface GroupSetting {
++  storage_policies?: number[];
+   compress_size?: number;
+   decompress_size?: number;
+   remote_download_options?: Record<string, any>;
+diff --git a/src/component/Admin/Group/EditGroup/BasicInfoSection.tsx b/src/component/Admin/Group/EditGroup/BasicInfoSection.tsx
+index e760653..6470e1a 100644
+--- a/src/component/Admin/Group/EditGroup/BasicInfoSection.tsx
++++ b/src/component/Admin/Group/EditGroup/BasicInfoSection.tsx
+@@ -7,7 +7,7 @@ import Boolset from "../../../../util/boolset";
+ import SizeInput from "../../../Common/SizeInput";
+ import { DenseFilledTextField } from "../../../Common/StyledComponents";
+ import InPrivate from "../../../Icons/InPrivate";
+-import SettingForm, { ProChip } from "../../../Pages/Setting/SettingForm";
++import SettingForm from "../../../Pages/Setting/SettingForm";
+ import { NoMarginHelperText, SettingSection, SettingSectionContent } from "../../Settings/Settings";
+ import { AnonymousGroupID } from "../GroupRow";
+ import { GroupSettingContext } from "./GroupSettingWrapper";
+@@ -27,11 +27,31 @@ const BasicInfoSection = () => {
+     [setGroup],
+   );
+ 
++  const policies = useMemo(() => {
++    if (values.settings?.storage_policies && values.settings.storage_policies.length > 0) {
++      return values.settings.storage_policies;
++    }
++    if (values.edges?.storage_policies) {
++      if (Array.isArray(values.edges.storage_policies)) {
++        return values.edges.storage_policies.map((p) => p.id);
++      }
++      return [values.edges.storage_policies.id];
++    }
++    return [];
++  }, [values.settings, values.edges]);
++
+   const onPolicyChange = useCallback(
+-    (value: number) => {
++    (value: number[]) => {
+       setGroup((p: GroupEnt) => ({
+         ...p,
+-        edges: { ...p.edges, storage_policies: { id: value } as StoragePolicy },
++        settings: {
++          ...p.settings,
++          storage_policies: value,
++        },
++        edges: {
++          ...p.edges,
++          storage_policies: value.length > 0 ? ({ id: value[0] } as StoragePolicy) : undefined,
++        },
+       }));
+     },
+     [setGroup],
+@@ -79,11 +99,8 @@ const BasicInfoSection = () => {
+         {values?.id != AnonymousGroupID && (
+           <>
+             <SettingForm title={t("group.availablePolicies")} lgWidth={5}>
+-              <PolicySelectionInput value={values.edges.storage_policies?.id ?? 0} onChange={onPolicyChange} />
++              <PolicySelectionInput value={policies} onChange={onPolicyChange} />
+               <NoMarginHelperText>{t("group.availablePoliciesDes")}</NoMarginHelperText>
+-              <NoMarginHelperText>
+-                <ProChip size="small" label="Pro" sx={{ ml: 0 }} /> {t("group.availablePolicyDesPro")}
+-              </NoMarginHelperText>
+             </SettingForm>
+             <SettingForm title={t("group.initialStorageQuota")} lgWidth={5}>
+               <FormControl fullWidth>
+diff --git a/src/component/Admin/Group/EditGroup/GroupSettingWrapper.tsx b/src/component/Admin/Group/EditGroup/GroupSettingWrapper.tsx
+index 1658f81..4d369b5 100644
+--- a/src/component/Admin/Group/EditGroup/GroupSettingWrapper.tsx
++++ b/src/component/Admin/Group/EditGroup/GroupSettingWrapper.tsx
+@@ -33,12 +33,24 @@ export const GroupSettingContext = createContext<GroupSettingContextProps>({
+ });
+ 
+ const groupValueFilter = (group: GroupEnt): GroupEnt => {
++  const policies =
++    group.settings?.storage_policies && group.settings.storage_policies.length > 0
++      ? group.settings.storage_policies
++      : group.edges?.storage_policies
++        ? Array.isArray(group.edges.storage_policies)
++          ? (group.edges.storage_policies as StoragePolicy[]).map((p) => p.id)
++          : [(group.edges.storage_policies as StoragePolicy).id]
++        : [];
++
+   return {
+     ...group,
++    settings: {
++      ...group.settings,
++      storage_policies: policies,
++    },
+     edges: {
+-      storage_policies: {
+-        id: group.edges.storage_policies?.id ?? 0,
+-      } as StoragePolicy,
++      ...group.edges,
++      storage_policies: policies.length > 0 ? ({ id: policies[0] } as StoragePolicy) : undefined,
+     },
+   };
+ };
+diff --git a/src/component/Admin/Group/EditGroup/PolicySelectionInput.tsx b/src/component/Admin/Group/EditGroup/PolicySelectionInput.tsx
+index ad85832..5447bb8 100644
+--- a/src/component/Admin/Group/EditGroup/PolicySelectionInput.tsx
++++ b/src/component/Admin/Group/EditGroup/PolicySelectionInput.tsx
+@@ -7,23 +7,27 @@ import { useAppDispatch } from "../../../../redux/hooks";
+ import FacebookCircularProgress from "../../../Common/CircularProgress";
+ import { DenseSelect, SquareChip } from "../../../Common/StyledComponents";
+ import { SquareMenuItem } from "../../../FileManager/ContextMenu/ContextMenu";
++
+ export interface PolicySelectionInputProps {
+-  value: number;
+-  onChange: (value: number) => void;
++  value: number[];
++  onChange: (value: number[]) => void;
++  filter?: (policy: StoragePolicy) => boolean | undefined;
+ }
+ 
+-const PolicySelectionInput = ({ value, onChange }: PolicySelectionInputProps) => {
++const PolicySelectionInput = ({ value, onChange, filter }: PolicySelectionInputProps) => {
+   const { t } = useTranslation("dashboard");
+   const dispatch = useAppDispatch();
+   const [policies, setPolicies] = useState<StoragePolicy[]>([]);
+   const [loading, setLoading] = useState(false);
+   const [policyMap, setPolicyMap] = useState<Record<number, StoragePolicy>>({});
+ 
++  const selectedValues = Array.isArray(value) ? value : (value ? [value] : []);
++
+   const handleChange = (event: SelectChangeEvent<unknown>) => {
+     const {
+       target: { value },
+     } = event;
+-    onChange(value as number);
++    onChange(typeof value === "string" ? value.split(",").map(Number) : (value as number[]));
+   };
+ 
+   useEffect(() => {
+@@ -49,7 +53,8 @@ const PolicySelectionInput = ({ value, onChange }: PolicySelectionInputProps) =>
+   return (
+     <FormControl fullWidth>
+       <DenseSelect
+-        value={value}
++        multiple
++        value={selectedValues}
+         required
+         onChange={handleChange}
+         sx={{
+@@ -66,10 +71,12 @@ const PolicySelectionInput = ({ value, onChange }: PolicySelectionInputProps) =>
+             },
+           },
+         }}
+-        renderValue={(selected: number) => (
++        renderValue={(selected) => (
+           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+             {!loading ? (
+-              <SquareChip size="small" key={selected} label={policyMap[selected]?.name} />
++              (selected as number[]).map((val) => (
++                <SquareChip size="small" key={val} label={policyMap[val]?.name} />
++              ))
+             ) : (
+               <FacebookCircularProgress size={20} sx={{ mt: "1px" }} />
+             )}
+@@ -77,7 +84,7 @@ const PolicySelectionInput = ({ value, onChange }: PolicySelectionInputProps) =>
+         )}
+       >
+         {policies.length > 0 &&
+-          policies.map((policy) => (
++          policies.filter(filter ?? (() => true)).map((policy) => (
+             <SquareMenuItem key={policy.id} value={policy.id}>
+               <Box
+                 sx={{
+diff --git a/src/component/Admin/Group/GroupRow.tsx b/src/component/Admin/Group/GroupRow.tsx
+index be51218..1a504be 100644
+--- a/src/component/Admin/Group/GroupRow.tsx
++++ b/src/component/Admin/Group/GroupRow.tsx
+@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
+ import { useTranslation } from "react-i18next";
+ import { Link as RouterLink, useNavigate } from "react-router-dom";
+ import { deleteGroup, getGroupDetail } from "../../../api/api";
+-import { GroupEnt } from "../../../api/dashboard";
++import { GroupEnt, StoragePolicy } from "../../../api/dashboard";
+ import { GroupPermission } from "../../../api/user";
+ import { useAppDispatch } from "../../../redux/hooks";
+ import { confirmOperation } from "../../../redux/thunks/dialog";
+@@ -19,11 +19,12 @@ export interface GroupRowProps {
+   group?: GroupEnt;
+   loading?: boolean;
+   onDelete?: () => void;
++  policies?: Record<number, StoragePolicy>;
+ }
+ 
+ export const AnonymousGroupID = 3;
+ 
+-const GroupRow = ({ group, loading, onDelete }: GroupRowProps) => {
++const GroupRow = ({ group, loading, onDelete, policies }: GroupRowProps) => {
+   const navigate = useNavigate();
+   const { t } = useTranslation("dashboard");
+   const dispatch = useAppDispatch();
+@@ -138,14 +139,27 @@ const GroupRow = ({ group, loading, onDelete }: GroupRowProps) => {
+       </NoWrapTableCell>
+       <NoWrapTableCell>
+         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+-          {group?.edges.storage_policies && (
+-            <SquareChip
+-              onClick={onPolicyClick(group.edges.storage_policies.id)}
+-              key={group.edges.storage_policies.id}
+-              label={group.edges.storage_policies.name}
+-              size="small"
+-            />
+-          )}
++          {(group?.settings?.storage_policies && group.settings.storage_policies.length > 0
++            ? group.settings.storage_policies
++            : (group?.edges?.storage_policies
++                ? (Array.isArray(group.edges.storage_policies)
++                    ? (group.edges.storage_policies as StoragePolicy[]).map((p) => p.id)
++                    : [(group.edges.storage_policies as StoragePolicy).id])
++                : [])
++          ).map((policyId) => {
++            const edgePolicy = !Array.isArray(group?.edges?.storage_policies) ? group?.edges?.storage_policies : undefined;
++            const policyName =
++              policies?.[policyId]?.name ??
++              (edgePolicy?.id === policyId ? edgePolicy.name : `#${policyId}`);
++            return (
++              <SquareChip
++                onClick={onPolicyClick(policyId)}
++                key={policyId}
++                label={policyName}
++                size="small"
++              />
++            );
++          })}
+         </Box>
+       </NoWrapTableCell>
+       <NoWrapTableCell>
+diff --git a/src/component/Admin/Group/GroupSetting.tsx b/src/component/Admin/Group/GroupSetting.tsx
+index ed42724..83bd21b 100644
+--- a/src/component/Admin/Group/GroupSetting.tsx
++++ b/src/component/Admin/Group/GroupSetting.tsx
+@@ -14,8 +14,8 @@ import {
+ import { useQueryState } from "nuqs";
+ import { useEffect, useState } from "react";
+ import { useTranslation } from "react-i18next";
+-import { getGroupList } from "../../../api/api";
+-import { GroupEnt } from "../../../api/dashboard";
++import { getGroupList, getStoragePolicyList } from "../../../api/api";
++import { GroupEnt, StoragePolicy } from "../../../api/dashboard";
+ import { useAppDispatch } from "../../../redux/hooks";
+ import { NoWrapTableCell, SecondaryButton, StyledTableContainerPaper } from "../../Common/StyledComponents";
+ import Add from "../../Icons/Add";
+@@ -33,6 +33,7 @@ const GroupSetting = () => {
+   const dispatch = useAppDispatch();
+   const [loading, setLoading] = useState(true);
+   const [groups, setGroups] = useState<GroupEnt[]>([]);
++  const [policies, setPolicies] = useState<Record<number, StoragePolicy>>({});
+   const [page, setPage] = useQueryState(PageQuery, { defaultValue: "1" });
+   const [pageSize, setPageSize] = useQueryState(PageSizeQuery, {
+     defaultValue: "10",
+@@ -44,6 +45,18 @@ const GroupSetting = () => {
+   const [count, setCount] = useState(0);
+   const [createNewOpen, setCreateNewOpen] = useState(false);
+ 
++  useEffect(() => {
++    dispatch(getStoragePolicyList({ page: 1, page_size: 1000, order_by: "id", order_direction: "asc" }))
++      .then((res) => {
++        const map: Record<number, StoragePolicy> = {};
++        res.policies.forEach((p) => {
++          map[p.id] = p;
++        });
++        setPolicies(map);
++      })
++      .catch(() => {});
++  }, []);
++
+   const pageInt = parseInt(page) ?? 1;
+   const pageSizeInt = parseInt(pageSize) ?? 11;
+ 
+@@ -122,7 +135,7 @@ const GroupSetting = () => {
+               </TableRow>
+             </TableHead>
+             <TableBody>
+-              {!loading && groups.map((group) => <GroupRow key={group.id} group={group} onDelete={fetchGroups} />)}
++              {!loading && groups.map((group) => <GroupRow key={group.id} group={group} policies={policies} onDelete={fetchGroups} />)}
+               {loading &&
+                 groups.length > 0 &&
+                 groups.map((group) => <GroupRow key={`loading-${group.id}`} loading={true} />)}
+diff --git a/src/component/Admin/Group/NewGroupDIalog.tsx b/src/component/Admin/Group/NewGroupDIalog.tsx
+index 56a1cf6..36e0382 100644
+--- a/src/component/Admin/Group/NewGroupDIalog.tsx
++++ b/src/component/Admin/Group/NewGroupDIalog.tsx
+@@ -36,6 +36,7 @@ const defaultGroup: GroupEnt = {
+     source_batch: 10,
+     aria2_batch: 1,
+     redirected_source: true,
++    storage_policies: [1],
+   },
+   edges: {
+     storage_policies: { id: 1 },
+diff --git a/src/component/FileManager/ContextMenu/useActionDisplayOpt.ts b/src/component/FileManager/ContextMenu/useActionDisplayOpt.ts
+index 046e3f8..225f555 100644
+--- a/src/component/FileManager/ContextMenu/useActionDisplayOpt.ts
++++ b/src/component/FileManager/ContextMenu/useActionDisplayOpt.ts
+@@ -19,8 +19,11 @@ export const canManageVersion = (file: FileResponse, bs: Boolset) => {
+   );
+ };
+ 
+-export const canShowInfo = (readable: boolean, cap: Boolset) => {
+-  return readable && cap.enabled(NavigatorCapability.info);
++export const canShowInfo = (readableOrCap: boolean | Boolset, cap?: Boolset) => {
++  if (typeof readableOrCap === "boolean") {
++    return readableOrCap && (cap ? cap.enabled(NavigatorCapability.info) : false);
++  }
++  return readableOrCap.enabled(NavigatorCapability.info);
+ };
+ 
+ export const canUpdate = (opt: DisplayOption) => {
+@@ -264,11 +267,12 @@ export const getActionOpt = (
+     display.orCapability &&
+     display.orCapability.enabled(NavigatorCapability.rename_file);
+   display.showCopy =
+-    display.hasReadable &&
++    (display.hasReadable || display.hasUpdatable) &&
+     display.orCapability &&
+     (display.orCapability.enabled(NavigatorCapability.copy_to_my) ||
+       display.orCapability.enabled(NavigatorCapability.copy_to_share) ||
+-      display.orCapability.enabled(NavigatorCapability.copy_to_trash));
++      display.orCapability.enabled(NavigatorCapability.copy_to_trash) ||
++      display.hasUpdatable);
+   display.showShare =
+     targets.length == 1 &&
+     !!currentUser &&
+@@ -279,11 +283,12 @@ export const getActionOpt = (
+     (!targets[0].metadata ||
+       (!targets[0].metadata[Metadata.share_redirect] && !targets[0].metadata[Metadata.restore_uri]));
+   display.showMove =
+-    display.hasDeletable &&
++    (display.hasDeletable || display.hasUpdatable) &&
+     display.orCapability &&
+     (display.orCapability.enabled(NavigatorCapability.move_to_share) ||
+       display.orCapability.enabled(NavigatorCapability.move_to_trash) ||
+-      display.orCapability.enabled(NavigatorCapability.move_to_my));
++      display.orCapability.enabled(NavigatorCapability.move_to_my) ||
++      display.hasUpdatable);
+   display.showTags =
+     display.hasUpdatable && display.orCapability && display.orCapability.enabled(NavigatorCapability.update_metadata);
+   display.showChangeFolderColor =
+diff --git a/src/component/FileManager/Dialogs/Share/ShareSetting.tsx b/src/component/FileManager/Dialogs/Share/ShareSetting.tsx
+index a3fb877..654c54a 100644
+--- a/src/component/FileManager/Dialogs/Share/ShareSetting.tsx
++++ b/src/component/FileManager/Dialogs/Share/ShareSetting.tsx
+@@ -135,9 +135,9 @@ const ShareSettingContent = ({ setting, file, editing, onSettingChange }: ShareS
+ 
+   const [expanded, setExpanded] = useState<string | undefined>(undefined);
+ 
+-  const pointEnabled = useAppSelector((state) => state.siteConfig.vas.config.point_enabled);
+-  const shareGainRate = useAppSelector((state) => state.siteConfig.vas.config.share_point_gain_rate);
+-  const vasLoaded = useAppSelector((state) => state.siteConfig.vas.loaded);
++  const pointEnabled = useAppSelector((state) => state.siteConfig.vas?.config?.point_enabled);
++  const shareGainRate = useAppSelector((state) => state.siteConfig.vas?.config?.share_point_gain_rate);
++  const vasLoaded = useAppSelector((state) => state.siteConfig.vas?.loaded ?? ConfigLoadState.NotLoaded);
+ 
+   useEffect(() => {
+     if (vasLoaded != ConfigLoadState.Loaded) {
+diff --git a/src/redux/siteConfigSlice.ts b/src/redux/siteConfigSlice.ts
+index 5cd8050..f5389d6 100644
+--- a/src/redux/siteConfigSlice.ts
++++ b/src/redux/siteConfigSlice.ts
+@@ -43,6 +43,10 @@ const initialState: SiteConfigSlice = {
+     loaded: ConfigLoadState.NotLoaded,
+     config: {},
+   },
++  vas: {
++    loaded: ConfigLoadState.NotLoaded,
++    config: {},
++  },
+   app: {
+     loaded: ConfigLoadState.NotLoaded,
+     config: {},
+diff --git a/src/util/permission.ts b/src/util/permission.ts
+index 439f782..7af0755 100644
+--- a/src/util/permission.ts
++++ b/src/util/permission.ts
+@@ -37,8 +37,12 @@ export function canCopyMoveTo(files: FileResponse[], dst: string, isCopy: boolea
+     }
+   }
+   const canNotMove = files.some((file) => {
++    if (!file.capability) return false;
+     const capability = new Boolset(file.capability);
+-    return !capability.enabled(bsKey);
++    if (capability.enabled(bsKey)) {
++      return false;
++    }
++    return !capability.enabled(NavigatorCapability.delete_file);
+   });
+   return !canNotMove;
+ }
+-- 
+2.51.2.windows.1
+
