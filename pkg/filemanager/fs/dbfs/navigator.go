@@ -139,6 +139,7 @@ func init() {
 		NavigatorCapabilityInfo:           true,
 		NavigatorCapabilityVersionControl: true,
 		NavigatorCapabilityMount:          true, // Mount storage policy
+		NavigatorCapabilityRelocate:       true,
 		NavigatorCapabilityEnterFolder:    true,
 		NavigatorCapabilityModifyProps:    true,
 	}, myNavigatorCapability)
@@ -160,6 +161,7 @@ func init() {
 		NavigatorCapabilityMoveToShare:    true,
 		NavigatorCapabilityCopyToShare:    true,
 		NavigatorCapabilityMount:          true,
+		NavigatorCapabilityRelocate:       true,
 	}, shareNavigatorCapability)
 	boolset.Sets(map[NavigatorCapability]bool{
 		NavigatorCapabilityListChildren: true,

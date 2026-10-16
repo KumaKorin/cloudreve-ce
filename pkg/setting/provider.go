@@ -239,6 +239,12 @@ type (
 		// ExposeUserEmail returns true if user email should be exposed to other
 		// signed-in users in redacted responses.
 		ExposeUserEmail(ctx context.Context) bool
+		// FilterEmailProvider returns the email filter mode (0: disabled, 1: whitelist, 2: blacklist).
+		FilterEmailProvider(ctx context.Context) int
+		// FilterEmailProviderRule returns the list of allowed or blocked email domains.
+		FilterEmailProviderRule(ctx context.Context) []string
+		// DisableSubAddressEmail returns true if sub-address email (+ address) is disabled.
+		DisableSubAddressEmail(ctx context.Context) bool
 	}
 	UseFirstSiteUrlCtxKey = struct{}
 )
@@ -861,6 +867,18 @@ func (s *settingProvider) AuthnEnabled(ctx context.Context) bool {
 
 func (s *settingProvider) RegisterEnabled(ctx context.Context) bool {
 	return s.getBoolean(ctx, "register_enabled", false)
+}
+
+func (s *settingProvider) FilterEmailProvider(ctx context.Context) int {
+	return s.getInt(ctx, "filter_email_provider", 0)
+}
+
+func (s *settingProvider) FilterEmailProviderRule(ctx context.Context) []string {
+	return s.getStringList(ctx, "filter_email_provider_rule", []string{})
+}
+
+func (s *settingProvider) DisableSubAddressEmail(ctx context.Context) bool {
+	return s.getBoolean(ctx, "disable_sub_address_email", false)
 }
 
 func (s *settingProvider) ExposeUserEmail(ctx context.Context) bool {

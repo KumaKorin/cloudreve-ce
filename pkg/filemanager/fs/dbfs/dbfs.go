@@ -810,8 +810,8 @@ func (f *DBFS) navigatorId(path *fs.URI) string {
 	}
 }
 
-// generateSavePath generates the physical save path for the upload request.
-func generateSavePath(policy *ent.StoragePolicy, req *fs.UploadRequest, user *ent.User) string {
+// GenerateSavePath generates the physical save path for the upload request.
+func GenerateSavePath(policy *ent.StoragePolicy, req *fs.UploadRequest, user *ent.User) string {
 	currentTime := time.Now()
 	dynamicReplace := func(rule string, pathAvailable bool) string {
 		return util.ReplaceMagicVar(rule, fs.Separator, pathAvailable, false, currentTime, user.ID, req.Props.Uri.Name(), req.Props.Uri.Dir(), "")
@@ -825,6 +825,10 @@ func generateSavePath(policy *ent.StoragePolicy, req *fs.UploadRequest, user *en
 	nameRule = dynamicReplace(nameRule, false)
 
 	return path.Join(path.Clean(dirRule), nameRule)
+}
+
+func generateSavePath(policy *ent.StoragePolicy, req *fs.UploadRequest, user *ent.User) string {
+	return GenerateSavePath(policy, req, user)
 }
 
 func canMoveOrCopyTo(src, dst *fs.URI, isCopy bool) bool {

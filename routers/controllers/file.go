@@ -34,6 +34,23 @@ func CreateArchive(c *gin.Context) {
 	}
 }
 
+// CreateRelocate 创建存储策略转移任务
+func CreateRelocate(c *gin.Context) {
+	service := ParametersFromContext[*explorer.RelocateWorkflowService](c, explorer.CreateRelocateParamCtx{})
+	resp, err := service.CreateRelocateTask(c)
+	if err != nil {
+		c.JSON(200, serializer.Err(c, err))
+		c.Abort()
+		return
+	}
+
+	if resp != nil {
+		c.JSON(200, serializer.Response{
+			Data: resp,
+		})
+	}
+}
+
 // ImportFiles imports files
 func ImportFiles(c *gin.Context) {
 	service := ParametersFromContext[*explorer.ImportWorkflowService](c, explorer.CreateImportParamCtx{})

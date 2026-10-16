@@ -34,9 +34,43 @@ func (service *UserRegisterService) Register(c *gin.Context) serializer.Response
 	dep := dependency.FromContext(c)
 	settings := dep.SettingProvider()
 
+	email := strings.ToLower(service.UserName)
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return serializer.ParamErr(c, "Invalid email address", nil)
+	}
+
+	if settings.DisableSubAddressEmail(c) && strings.Contains(parts[0], "+") {
+		return serializer.ErrWithDetails(c, serializer.CodeEmailProviderBaned, "Sub-address email is not allowed", nil)
+	}
+
+	filterMode := settings.FilterEmailProvider(c)
+	if filterMode != 0 {
+		domain := parts[1]
+		rules := settings.FilterEmailProviderRule(c)
+		matched := false
+		for _, rule := range rules {
+			rule = strings.TrimSpace(strings.ToLower(rule))
+			if rule == "" {
+				continue
+			}
+			rule = strings.TrimPrefix(rule, "@")
+			if domain == rule || strings.HasSuffix(domain, "."+rule) {
+				matched = true
+				break
+			}
+		}
+		if filterMode == 1 && !matched {
+			return serializer.ErrWithDetails(c, serializer.CodeEmailProviderBaned, "Email provider not in whitelist", nil)
+		}
+		if filterMode == 2 && matched {
+			return serializer.ErrWithDetails(c, serializer.CodeEmailProviderBaned, "Email provider is in blacklist", nil)
+		}
+	}
+
 	isEmailRequired := settings.EmailActivationEnabled(c)
 	args := &inventory.NewUserArgs{
-		Email:         strings.ToLower(service.UserName),
+		Email:         email,
 		PlainPassword: service.Password,
 		Status:        user.StatusActive,
 		GroupID:       settings.DefaultGroup(c),
